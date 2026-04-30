@@ -2,8 +2,7 @@
 
 # ============================================================================
 #                     SLOWDNS MODERN INSTALLATION SCRIPT
-#                          ELITE-X8 EDITION v2.0
-#                     WITH LOGIN SYSTEM & USER MANAGEMENT
+#                          ELITE-X8 EDITION
 # ============================================================================
 
 # Ensure running as root
@@ -20,12 +19,6 @@ SLOWDNS_PORT=5300
 DASHBOARD_PORT=8080
 GITHUB_BASE="https://raw.githubusercontent.com/ELITE-X8/setup.sh/main"
 LOG_FILE="/var/log/slowdns-install.log"
-USERS_DB="/etc/slowdns/users.db"
-CONFIG_FILE="/etc/slowdns/config.ini"
-
-# Default credentials
-ADMIN_USER="elite-x"
-ADMIN_PASS="elite2026"
 
 # ============================================================================
 # MODERN COLORS & DESIGN
@@ -48,538 +41,457 @@ log_message() {
 }
 
 # ============================================================================
-# PASSWORD HASHING FUNCTIONS
+# ANIMATION FUNCTIONS
 # ============================================================================
-hash_password() {
-    echo -n "$1" | sha256sum | awk '{print $1}'
+show_progress() {
+    local pid=$1
+    local delay=0.1
+    local spinstr='|/-\'
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
 }
 
-verify_password() {
-    local user="$1"
-    local pass="$2"
-    local stored_hash=$(grep "^$user:" "$USERS_DB" | cut -d: -f2)
-    local input_hash=$(hash_password "$pass")
+print_step() {
+    echo -e "\n${BLUE}┌─${NC} ${CYAN}${BOLD}STEP $1${NC}"
+    echo -e "${BLUE}│${NC}"
+}
+
+print_step_end() {
+    echo -e "${BLUE}└─${NC} ${GREEN}✓${NC} Completed"
+}
+
+print_banner() {
+    clear
+    echo -e "${PURPLE}╔══════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${PURPLE}║${NC}${CYAN}          🚀 ELITE-X8 SLOWDNS MODERN INSTALLATION SCRIPT${NC}       ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC}${WHITE}            Fast & Professional Configuration${NC}                  ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC}${YELLOW}                Optimized for Maximum Performance${NC}              ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC}${GREEN}                   Panel Dashboard Included${NC}                    ${PURPLE}║${NC}"
+    echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
+print_header() {
+    echo -e "\n${PURPLE}══════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}${BOLD}$1${NC}"
+    echo -e "${PURPLE}══════════════════════════════════════════════════════════${NC}"
+}
+
+print_success() {
+    echo -e "  ${GREEN}${BOLD}✓${NC} ${GREEN}$1${NC}"
+}
+
+print_error() {
+    echo -e "  ${RED}${BOLD}✗${NC} ${RED}$1${NC}"
+}
+
+print_warning() {
+    echo -e "  ${YELLOW}${BOLD}!${NC} ${YELLOW}$1${NC}"
+}
+
+print_info() {
+    echo -e "  ${CYAN}${BOLD}ℹ${NC} ${CYAN}$1${NC}"
+}
+
+# ============================================================================
+# CHECK SYSTEM REQUIREMENTS
+# ============================================================================
+check_requirements() {
+    print_header "🔍 CHECKING SYSTEM REQUIREMENTS"
     
-    if [ "$stored_hash" = "$input_hash" ]; then
-        return 0
+    # Check OS
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$NAME
+        VER=$VERSION_ID
+        print_success "OS: $OS $VER"
     else
-        return 1
+        print_error "Cannot detect OS"
+        exit 1
+    fi
+    
+    # Check architecture
+    ARCH=$(uname -m)
+    print_success "Architecture: $ARCH"
+    
+    # Check memory
+    MEM=$(free -m | awk '/^Mem:/{print $2}')
+    print_success "Memory: ${MEM}MB"
+    
+    # Check disk space
+    DISK=$(df -h / | awk 'NR==2{print $4}')
+    print_success "Available Disk: $DISK"
+    
+    # Check internet connection
+    if ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+        print_success "Internet: Connected"
+    else
+        print_error "No internet connection"
+        exit 1
     fi
 }
 
 # ============================================================================
-# USER MANAGEMENT FUNCTIONS
+# DOWNLOAD FILES FROM GITHUB
 # ============================================================================
-init_users_db() {
+download_files() {
+    print_step "1"
+    print_info "Downloading files from ELITE-X8 Repository"
+    
     mkdir -p /etc/slowdns
-    if [ ! -f "$USERS_DB" ]; then
-        touch "$USERS_DB"
-        chmod 600 "$USERS_DB"
-        # Add default admin user
-        local admin_hash=$(hash_password "$ADMIN_PASS")
-        echo "$ADMIN_USER:$admin_hash:admin:active:$(date +%s)" >> "$USERS_DB"
-        log_message "Users database initialized with admin user"
-    fi
-}
-
-add_user() {
-    local username="$1"
-    local password="$2"
-    local role="${3:-user}"
+    cd /etc/slowdns
     
-    if grep -q "^$username:" "$USERS_DB"; then
-        return 1
+    # Download dnstt-server
+    echo -ne "  ${CYAN}Downloading dnstt-server binary...${NC}"
+    if wget -q "$GITHUB_BASE/dnstt-server" -O dnstt-server 2>/dev/null; then
+        chmod +x dnstt-server
+        echo -e "\r  ${GREEN}✓ dnstt-server downloaded${NC}"
+        log_message "dnstt-server downloaded successfully"
+    else
+        echo -e "\r  ${RED}✗ Failed to download dnstt-server${NC}"
+        log_message "ERROR: Failed to download dnstt-server"
+        exit 1
     fi
     
-    local pass_hash=$(hash_password "$password")
-    echo "$username:$pass_hash:$role:active:$(date +%s)" >> "$USERS_DB"
-    log_message "User added: $username ($role)"
-    return 0
-}
-
-remove_user() {
-    local username="$1"
-    
-    if [ "$username" = "$ADMIN_USER" ]; then
-        return 1
+    # Download server.key
+    echo -ne "  ${CYAN}Downloading server.key...${NC}"
+    if wget -q "$GITHUB_BASE/server.key" -O server.key 2>/dev/null; then
+        chmod 600 server.key
+        echo -e "\r  ${GREEN}✓ server.key downloaded${NC}"
+        log_message "server.key downloaded successfully"
+    else
+        echo -e "\r  ${RED}✗ Failed to download server.key${NC}"
+        log_message "ERROR: Failed to download server.key"
+        exit 1
     fi
     
-    sed -i "/^$username:/d" "$USERS_DB"
-    log_message "User removed: $username"
-    return 0
-}
-
-list_users() {
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC} ${WHITE}${BOLD}REGISTERED USERS${NC}                                 ${CYAN}║${NC}"
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC} ${YELLOW}USERNAME      ROLE      STATUS      CREATED${NC}         ${CYAN}║${NC}"
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════╣${NC}"
-    
-    while IFS=: read -r user hash role status created; do
-        local created_date=$(date -d "@$created" "+%Y-%m-%d" 2>/dev/null || echo "Unknown")
-        printf "${CYAN}║${NC} %-13s %-9s %-10s %-12s ${CYAN}║${NC}\n" "$user" "$role" "$status" "$created_date"
-    done < "$USERS_DB"
-    
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
-}
-
-change_password() {
-    local username="$1"
-    local new_password="$2"
-    
-    if ! grep -q "^$username:" "$USERS_DB"; then
-        return 1
+    # Download server.pub
+    echo -ne "  ${CYAN}Downloading server.pub...${NC}"
+    if wget -q "$GITHUB_BASE/server.pub" -O server.pub 2>/dev/null; then
+        chmod 644 server.pub
+        echo -e "\r  ${GREEN}✓ server.pub downloaded${NC}"
+        log_message "server.pub downloaded successfully"
+    else
+        echo -e "\r  ${RED}✗ Failed to download server.pub${NC}"
+        log_message "ERROR: Failed to download server.pub"
+        exit 1
     fi
     
-    local role=$(grep "^$username:" "$USERS_DB" | cut -d: -f3)
-    local status=$(grep "^$username:" "$USERS_DB" | cut -d: -f4)
-    local created=$(grep "^$username:" "$USERS_DB" | cut -d: -f5)
-    local new_hash=$(hash_password "$new_password")
+    # Download dashboard
+    echo -ne "  ${CYAN}Downloading dashboard files...${NC}"
+    mkdir -p /etc/slowdns/dashboard
+    wget -q "$GITHUB_BASE/dashboard/index.html" -O /etc/slowdns/dashboard/index.html 2>/dev/null
+    wget -q "$GITHUB_BASE/dashboard/style.css" -O /etc/slowdns/dashboard/style.css 2>/dev/null
+    wget -q "$GITHUB_BASE/dashboard/script.js" -O /etc/slowdns/dashboard/script.js 2>/dev/null
+    echo -e "\r  ${GREEN}✓ Dashboard files downloaded${NC}"
+    log_message "Dashboard files downloaded"
     
-    sed -i "/^$username:/d" "$USERS_DB"
-    echo "$username:$new_hash:$role:$status:$created" >> "$USERS_DB"
-    log_message "Password changed for user: $username"
-    return 0
+    print_success "All files downloaded from repository"
+    print_step_end
 }
 
 # ============================================================================
-# C-BASED AUTHENTICATION SERVER
+# CONFIGURE SSH
 # ============================================================================
-compile_auth_server() {
-    print_info "Compiling Authentication Server..."
+configure_ssh() {
+    print_step "2"
+    print_info "Configuring OpenSSH on port $SSHD_PORT"
     
-    cat > /tmp/auth_server.c << 'CEOF'
+    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup 2>/dev/null
+    
+    cat > /etc/ssh/sshd_config << EOF
+# ELITE-X8 SLOWDNS SSH CONFIGURATION
+Port $SSHD_PORT
+Protocol 2
+PermitRootLogin yes
+PubkeyAuthentication yes
+PasswordAuthentication yes
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+UsePAM yes
+X11Forwarding no
+PrintMotd no
+PrintLastLog yes
+TCPKeepAlive yes
+ClientAliveInterval 60
+ClientAliveCountMax 3
+AllowTcpForwarding yes
+GatewayPorts yes
+Compression delayed
+Subsystem sftp /usr/lib/openssh/sftp-server
+MaxSessions 100
+MaxStartups 100:30:200
+LoginGraceTime 30
+UseDNS no
+EOF
+    
+    systemctl restart sshd 2>/dev/null
+    sleep 2
+    
+    if systemctl is-active --quiet sshd; then
+        print_success "SSH configured on port $SSHD_PORT"
+    else
+        print_error "SSH configuration failed"
+        log_message "ERROR: SSH restart failed"
+    fi
+    print_step_end
+}
+
+# ============================================================================
+# COMPILE EDNS PROXY
+# ============================================================================
+compile_edns() {
+    print_step "3"
+    print_info "Compiling High-Performance EDNS Proxy"
+    
+    # Install compiler if needed
+    if ! command -v gcc &>/dev/null; then
+        print_info "Installing build tools..."
+        apt-get update -qq > /dev/null 2>&1
+        apt-get install -y -qq gcc make > /dev/null 2>&1
+    fi
+    
+    cat > /tmp/edns.c << 'EOF'
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <sys/stat.h>
 #include <fcntl.h>
-#include <time.h>
+#include <errno.h>
 #include <signal.h>
+#include <time.h>
+#include <stdint.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <sys/epoll.h>
 
-#define PORT 9090
+#define LISTEN_PORT 53
+#define SLOWDNS_PORT 5300
 #define BUFFER_SIZE 4096
-#define USERS_FILE "/etc/slowdns/users.db"
-#define SESSION_TIMEOUT 3600
+#define UPSTREAM_POOL 32
+#define SOCKET_TIMEOUT 1.0
+#define MAX_EVENTS 4096
+#define REQ_TABLE_SIZE 65536
+#define EXT_EDNS 512
+#define INT_EDNS 1500
 
 typedef struct {
-    char username[64];
-    char session_id[128];
-    time_t created;
-    int active;
-} session_t;
+    int fd;
+    int busy;
+    time_t last_used;
+} upstream_t;
 
-session_t sessions[100];
-int session_count = 0;
+typedef struct req_entry {
+    uint16_t req_id;
+    int upstream_idx;
+    double timestamp;
+    struct sockaddr_in client_addr;
+    socklen_t addr_len;
+    struct req_entry *next;
+} req_entry_t;
 
-// Simple SHA256 implementation for password hashing
-void simple_hash(const char *input, char *output) {
-    // Using shell command for simplicity
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "echo -n '%s' | sha256sum | awk '{print $1}'", input);
-    FILE *fp = popen(cmd, "r");
-    if (fp) {
-        fgets(output, 33, fp);
-        output[32] = '\0';
-        pclose(fp);
-    }
+static upstream_t upstreams[UPSTREAM_POOL];
+static req_entry_t *req_table[REQ_TABLE_SIZE];
+static int sock, epoll_fd;
+static volatile sig_atomic_t shutdown_flag = 0;
+
+double now() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec / 1e9;
 }
 
-int verify_credentials(const char *username, const char *password) {
-    FILE *fp = fopen(USERS_FILE, "r");
-    if (!fp) return 0;
-    
-    char line[256];
-    char input_hash[33];
-    simple_hash(password, input_hash);
-    
-    while (fgets(line, sizeof(line), fp)) {
-        char *user = strtok(line, ":");
-        char *hash = strtok(NULL, ":");
-        char *role = strtok(NULL, ":");
-        char *status = strtok(NULL, ":");
-        
-        if (user && hash && strcmp(username, user) == 0) {
-            if (strcmp(input_hash, hash) == 0 && strcmp(status, "active") == 0) {
-                fclose(fp);
-                return 1;
-            }
-        }
-    }
-    
-    fclose(fp);
-    return 0;
+uint16_t get_txid(unsigned char *b) {
+    return ((uint16_t)b[0] << 8) | b[1];
 }
 
-void generate_session_id(char *session_id) {
-    const char *chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    srand(time(NULL) ^ getpid());
-    for (int i = 0; i < 32; i++) {
-        session_id[i] = chars[rand() % 62];
-    }
-    session_id[32] = '\0';
+uint32_t req_hash(uint16_t id) {
+    return id & (REQ_TABLE_SIZE - 1);
 }
 
-char *create_session(const char *username) {
-    // Remove expired sessions
-    time_t now = time(NULL);
-    for (int i = 0; i < session_count; i++) {
-        if (sessions[i].active && (now - sessions[i].created) > SESSION_TIMEOUT) {
-            sessions[i].active = 0;
+int patch_edns(unsigned char *buf, int len, int size) {
+    if (len < 12) return len;
+    int off = 12;
+    int qd = (buf[4] << 8) | buf[5];
+    for (int i=0;i<qd;i++) {
+        while (buf[off]) off++;
+        off += 5;
+    }
+    int ar = (buf[10] << 8) | buf[11];
+    for (int i=0;i<ar;i++) {
+        if (buf[off]==0 && off+4<len && ((buf[off+1]<<8)|buf[off+2])==41) {
+            buf[off+3]=size>>8;
+            buf[off+4]=size&255;
+            return len;
+        }
+        off++;
+    }
+    return len;
+}
+
+int get_upstream() {
+    time_t t = time(NULL);
+    for (int i=0;i<UPSTREAM_POOL;i++) {
+        if (upstreams[i].busy && t - upstreams[i].last_used > 2)
+            upstreams[i].busy = 0;
+        if (!upstreams[i].busy) {
+            upstreams[i].busy = 1;
+            upstreams[i].last_used = t;
+            return i;
         }
     }
-    
-    // Find empty slot
-    for (int i = 0; i < 100; i++) {
-        if (!sessions[i].active) {
-            strncpy(sessions[i].username, username, 63);
-            generate_session_id(sessions[i].session_id);
-            sessions[i].created = now;
-            sessions[i].active = 1;
-            if (i >= session_count) session_count = i + 1;
-            return sessions[i].session_id;
-        }
-    }
-    
+    return -1;
+}
+
+void release_upstream(int i) {
+    if (i>=0 && i<UPSTREAM_POOL) upstreams[i].busy = 0;
+}
+
+void insert_req(int uidx, unsigned char *buf, struct sockaddr_in *c, socklen_t l) {
+    req_entry_t *e = calloc(1,sizeof(*e));
+    e->upstream_idx = uidx;
+    e->req_id = get_txid(buf);
+    e->timestamp = now();
+    e->client_addr = *c;
+    e->addr_len = l;
+    uint32_t h = req_hash(e->req_id);
+    e->next = req_table[h];
+    req_table[h] = e;
+}
+
+req_entry_t *find_req(uint16_t id) {
+    uint32_t h = req_hash(id);
+    for (req_entry_t *e=req_table[h]; e; e=e->next)
+        if (e->req_id == id) return e;
     return NULL;
 }
 
-int validate_session(const char *session_id) {
-    time_t now = time(NULL);
-    for (int i = 0; i < session_count; i++) {
-        if (sessions[i].active && 
-            strcmp(sessions[i].session_id, session_id) == 0 &&
-            (now - sessions[i].created) <= SESSION_TIMEOUT) {
-            return 1;
-        }
+void delete_req(req_entry_t *e) {
+    release_upstream(e->upstream_idx);
+    uint32_t h = req_hash(e->req_id);
+    req_entry_t **pp=&req_table[h];
+    while(*pp){
+        if(*pp==e){ *pp=e->next; free(e); return; }
+        pp=&(*pp)->next;
     }
-    return 0;
 }
 
-void handle_request(int client_fd) {
-    char buffer[BUFFER_SIZE];
-    int bytes_read = read(client_fd, buffer, BUFFER_SIZE - 1);
-    
-    if (bytes_read <= 0) {
-        close(client_fd);
-        return;
+void cleanup_expired() {
+    double t=now();
+    for(int i=0;i<REQ_TABLE_SIZE;i++){
+        req_entry_t **pp=&req_table[i];
+        while(*pp){
+            if(t-(*pp)->timestamp > SOCKET_TIMEOUT){
+                req_entry_t *o=*pp;
+                release_upstream(o->upstream_idx);
+                *pp=o->next;
+                free(o);
+            } else pp=&(*pp)->next;
+        }
     }
-    
-    buffer[bytes_read] = '\0';
-    
-    // Parse request
-    char method[16] = {0};
-    char path[256] = {0};
-    sscanf(buffer, "%s %s", method, path);
-    
-    // Parse headers for session cookie
-    char *cookie = strstr(buffer, "Cookie: session=");
-    char session_id[128] = {0};
-    if (cookie) {
-        sscanf(cookie, "Cookie: session=%32s", session_id);
+}
+
+void sig_handler(int s){ shutdown_flag=1; }
+
+int main() {
+    signal(SIGINT,sig_handler);
+    signal(SIGTERM,sig_handler);
+
+    sock=socket(AF_INET,SOCK_DGRAM,0);
+    fcntl(sock,F_SETFL,O_NONBLOCK);
+    int reuse=1;
+    setsockopt(sock,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse));
+
+    struct sockaddr_in a={0};
+    a.sin_family=AF_INET; a.sin_port=htons(LISTEN_PORT);
+    a.sin_addr.s_addr=INADDR_ANY;
+    bind(sock,(void*)&a,sizeof(a));
+
+    struct sockaddr_in slow={0};
+    slow.sin_family=AF_INET; slow.sin_port=htons(SLOWDNS_PORT);
+    inet_pton(AF_INET,"127.0.0.1",&slow.sin_addr);
+
+    epoll_fd=epoll_create1(0);
+    struct epoll_event ev={.events=EPOLLIN,.data.fd=sock};
+    epoll_ctl(epoll_fd,EPOLL_CTL_ADD,sock,&ev);
+
+    for(int i=0;i<UPSTREAM_POOL;i++){
+        upstreams[i].fd=socket(AF_INET,SOCK_DGRAM,0);
+        fcntl(upstreams[i].fd,F_SETFL,O_NONBLOCK);
+        struct epoll_event ue={.events=EPOLLIN,.data.fd=upstreams[i].fd};
+        epoll_ctl(epoll_fd,EPOLL_CTL_ADD,upstreams[i].fd,&ue);
     }
-    
-    char response[BUFFER_SIZE * 2];
-    
-    if (strcmp(path, "/api/login") == 0 && strcmp(method, "POST") == 0) {
-        // Handle login
-        char *body = strstr(buffer, "\r\n\r\n");
-        if (body) {
-            body += 4;
-            char username[64] = {0};
-            char password[64] = {0};
-            
-            // Simple JSON parsing
-            char *user_start = strstr(body, "\"username\"");
-            char *pass_start = strstr(body, "\"password\"");
-            
-            if (user_start && pass_start) {
-                sscanf(user_start, "\"username\":\"%63[^\"]\"", username);
-                sscanf(pass_start, "\"password\":\"%63[^\"]\"", password);
-                
-                if (verify_credentials(username, password)) {
-                    char *sid = create_session(username);
-                    if (sid) {
-                        snprintf(response, sizeof(response),
-                            "HTTP/1.1 200 OK\r\n"
-                            "Content-Type: application/json\r\n"
-                            "Set-Cookie: session=%s; Path=/; HttpOnly\r\n"
-                            "Access-Control-Allow-Origin: *\r\n"
-                            "\r\n"
-                            "{\"status\":\"success\",\"session\":\"%s\",\"username\":\"%s\"}",
-                            sid, sid, username);
-                    } else {
-                        snprintf(response, sizeof(response),
-                            "HTTP/1.1 500 Internal Server Error\r\n"
-                            "Content-Type: application/json\r\n"
-                            "Access-Control-Allow-Origin: *\r\n"
-                            "\r\n"
-                            "{\"status\":\"error\",\"message\":\"Session creation failed\"}");
+
+    struct epoll_event events[MAX_EVENTS];
+
+    while(!shutdown_flag){
+        cleanup_expired();
+        int n=epoll_wait(epoll_fd,events,MAX_EVENTS,10);
+        for(int i=0;i<n;i++){
+            int fd=events[i].data.fd;
+            if(fd==sock){
+                unsigned char buf[BUFFER_SIZE];
+                struct sockaddr_in c; socklen_t l=sizeof(c);
+                int len=recvfrom(sock,buf,sizeof(buf),0,(void*)&c,&l);
+                if(len>0){
+                    patch_edns(buf,len,INT_EDNS);
+                    int u=get_upstream();
+                    if(u>=0){
+                        insert_req(u,buf,&c,l);
+                        sendto(upstreams[u].fd,buf,len,0,(void*)&slow,sizeof(slow));
                     }
-                } else {
-                    snprintf(response, sizeof(response),
-                        "HTTP/1.1 401 Unauthorized\r\n"
-                        "Content-Type: application/json\r\n"
-                        "Access-Control-Allow-Origin: *\r\n"
-                        "\r\n"
-                        "{\"status\":\"error\",\"message\":\"Invalid credentials\"}");
+                }
+            } else {
+                unsigned char buf[BUFFER_SIZE];
+                int len=recv(fd,buf,sizeof(buf),0);
+                if(len>0){
+                    uint16_t id=get_txid(buf);
+                    req_entry_t *e=find_req(id);
+                    if(e){
+                        patch_edns(buf,len,EXT_EDNS);
+                        sendto(sock,buf,len,0,(void*)&e->client_addr,e->addr_len);
+                        delete_req(e);
+                    }
                 }
             }
         }
-    } else if (strcmp(path, "/api/verify") == 0) {
-        // Verify session
-        if (validate_session(session_id)) {
-            snprintf(response, sizeof(response),
-                "HTTP/1.1 200 OK\r\n"
-                "Content-Type: application/json\r\n"
-                "Access-Control-Allow-Origin: *\r\n"
-                "\r\n"
-                "{\"status\":\"success\",\"authenticated\":true}");
-        } else {
-            snprintf(response, sizeof(response),
-                "HTTP/1.1 401 Unauthorized\r\n"
-                "Content-Type: application/json\r\n"
-                "Access-Control-Allow-Origin: *\r\n"
-                "\r\n"
-                "{\"status\":\"error\",\"authenticated\":false}");
-        }
-    } else if (strcmp(path, "/api/logout") == 0) {
-        // Handle logout
-        for (int i = 0; i < session_count; i++) {
-            if (sessions[i].active && strcmp(sessions[i].session_id, session_id) == 0) {
-                sessions[i].active = 0;
-            }
-        }
-        snprintf(response, sizeof(response),
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: application/json\r\n"
-            "Set-Cookie: session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT\r\n"
-            "Access-Control-Allow-Origin: *\r\n"
-            "\r\n"
-            "{\"status\":\"success\",\"message\":\"Logged out\"}");
-    } else {
-        snprintf(response, sizeof(response),
-            "HTTP/1.1 404 Not Found\r\n"
-            "Content-Type: application/json\r\n"
-            "\r\n"
-            "{\"status\":\"error\",\"message\":\"Not found\"}");
     }
-    
-    write(client_fd, response, strlen(response));
-    close(client_fd);
-}
-
-int main() {
-    signal(SIGCHLD, SIG_IGN);
-    
-    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd < 0) {
-        perror("Socket creation failed");
-        return 1;
-    }
-    
-    int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(PORT);
-    
-    if (bind(server_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        perror("Bind failed");
-        return 1;
-    }
-    
-    if (listen(server_fd, 10) < 0) {
-        perror("Listen failed");
-        return 1;
-    }
-    
-    printf("Auth server running on port %d\n", PORT);
-    
-    while (1) {
-        struct sockaddr_in client_addr;
-        socklen_t client_len = sizeof(client_addr);
-        int client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
-        
-        if (client_fd < 0) continue;
-        
-        if (fork() == 0) {
-            close(server_fd);
-            handle_request(client_fd);
-            exit(0);
-        }
-        
-        close(client_fd);
-    }
-    
     return 0;
 }
-CEOF
-
-    gcc -O3 -o /usr/local/bin/slowdns-auth-server /tmp/auth_server.c 2>/dev/null
+EOF
+    
+    echo -ne "  ${CYAN}Compiling EDNS Proxy...${NC}"
+    gcc -O3 -march=native -pipe /tmp/edns.c -o /usr/local/bin/edns-proxy 2>/dev/null
     
     if [ $? -eq 0 ]; then
-        chmod +x /usr/local/bin/slowdns-auth-server
-        print_success "Authentication server compiled successfully"
-        log_message "Auth server compiled successfully"
+        chmod +x /usr/local/bin/edns-proxy
+        echo -e "\r  ${GREEN}✓ EDNS Proxy compiled successfully${NC}"
+        log_message "EDNS Proxy compiled successfully"
     else
-        print_error "Auth server compilation failed, using Python fallback"
-        log_message "Auth server compilation failed"
+        echo -e "\r  ${RED}✗ Compilation failed - installing pre-compiled${NC}"
+        wget -q "$GITHUB_BASE/edns-proxy" -O /usr/local/bin/edns-proxy
+        chmod +x /usr/local/bin/edns-proxy
     fi
+    
+    print_step_end
 }
 
 # ============================================================================
-# CREATE ENHANCED DASHBOARD WITH LOGIN
+# CREATE DASHBOARD
 # ============================================================================
 create_dashboard() {
     print_step "4"
-    print_info "Creating Enhanced Management Dashboard with Login"
+    print_info "Creating Management Dashboard"
     
     mkdir -p /etc/slowdns/dashboard
     
-    # Create login page
-    cat > /etc/slowdns/dashboard/login.html << 'HTMLEOF'
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ELITE-X8 SlowDNS - Login</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        .login-container {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 40px;
-            width: 400px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        .logo {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .logo h1 {
-            color: white;
-            font-size: 2em;
-            margin-bottom: 10px;
-        }
-        .logo p {
-            color: rgba(255, 255, 255, 0.7);
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        .form-group label {
-            color: white;
-            display: block;
-            margin-bottom: 5px;
-        }
-        .form-group input {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 10px;
-            background: rgba(255, 255, 255, 0.1);
-            color: white;
-            font-size: 1em;
-        }
-        .form-group input::placeholder {
-            color: rgba(255, 255, 255, 0.5);
-        }
-        .login-btn {
-            width: 100%;
-            padding: 12px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            border-radius: 10px;
-            color: white;
-            font-size: 1.1em;
-            cursor: pointer;
-            transition: transform 0.3s;
-        }
-        .login-btn:hover {
-            transform: translateY(-2px);
-        }
-        .error-message {
-            color: #ff6b6b;
-            text-align: center;
-            margin-top: 10px;
-            display: none;
-        }
-    </style>
-</head>
-<body>
-    <div class="login-container">
-        <div class="logo">
-            <h1>🚀 ELITE-X8</h1>
-            <p>SlowDNS Management System</p>
-        </div>
-        <form id="loginForm">
-            <div class="form-group">
-                <label for="username">Username</label>
-                <input type="text" id="username" placeholder="Enter username" required>
-            </div>
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" placeholder="Enter password" required>
-            </div>
-            <button type="submit" class="login-btn">Sign In</button>
-        </form>
-        <div class="error-message" id="errorMessage"></div>
-    </div>
-    
-    <script>
-        document.getElementById('loginForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-            const errorDiv = document.getElementById('errorMessage');
-            
-            try {
-                const response = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ username, password })
-                });
-                
-                const data = await response.json();
-                
-                if (data.status === 'success') {
-                    window.location.href = '/dashboard';
-                } else {
-                    errorDiv.textContent = data.message || 'Invalid credentials';
-                    errorDiv.style.display = 'block';
-                }
-            } catch (error) {
-                errorDiv.textContent = 'Connection error. Please try again.';
-                errorDiv.style.display = 'block';
-            }
-        });
-    </script>
-</body>
-</html>
-HTMLEOF
-
-    # Create main dashboard
+    # Create dashboard HTML
     cat > /etc/slowdns/dashboard/index.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html lang="en">
@@ -591,176 +503,100 @@ HTMLEOF
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            color: white;
-        }
-        
-        /* Sidebar */
-        .sidebar {
-            position: fixed;
-            left: 0;
-            top: 0;
-            width: 250px;
-            height: 100vh;
-            background: rgba(0, 0, 0, 0.3);
-            backdrop-filter: blur(10px);
             padding: 20px;
-            border-right: 1px solid rgba(255, 255, 255, 0.1);
         }
-        
-        .sidebar-header {
-            text-align: center;
-            padding: 20px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            margin-bottom: 20px;
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
         }
-        
-        .sidebar-header h2 {
-            font-size: 1.5em;
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+        .header {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255,255,255,0.2);
         }
-        
-        .sidebar-menu {
-            list-style: none;
-        }
-        
-        .sidebar-menu li {
+        .header h1 {
+            color: white;
+            font-size: 2.5em;
             margin-bottom: 10px;
         }
-        
-        .sidebar-menu a {
-            color: rgba(255, 255, 255, 0.7);
-            text-decoration: none;
-            padding: 12px 15px;
-            display: block;
-            border-radius: 10px;
-            transition: all 0.3s;
+        .header p {
+            color: rgba(255,255,255,0.8);
+            font-size: 1.1em;
         }
-        
-        .sidebar-menu a:hover,
-        .sidebar-menu a.active {
-            background: rgba(102, 126, 234, 0.2);
-            color: white;
-        }
-        
-        .sidebar-menu .icon {
-            margin-right: 10px;
-        }
-        
-        /* Main Content */
-        .main-content {
-            margin-left: 250px;
-            padding: 30px;
-        }
-        
-        .top-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-            padding: 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 15px;
-        }
-        
-        .user-info {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-        
-        .logout-btn {
-            padding: 10px 20px;
-            background: rgba(255, 0, 0, 0.2);
-            border: 1px solid rgba(255, 0, 0, 0.3);
-            border-radius: 10px;
-            color: #ff6b6b;
-            cursor: pointer;
-        }
-        
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
         }
-        
         .stat-card {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(255,255,255,0.1);
             backdrop-filter: blur(10px);
             border-radius: 15px;
-            padding: 25px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: transform 0.3s;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
         }
-        
-        .stat-card:hover {
-            transform: translateY(-5px);
-        }
-        
         .stat-card h3 {
             font-size: 0.9em;
-            color: rgba(255, 255, 255, 0.6);
-            margin-bottom: 15px;
+            color: rgba(255,255,255,0.7);
+            margin-bottom: 10px;
         }
-        
         .stat-card .value {
-            font-size: 2.5em;
+            font-size: 2em;
             font-weight: bold;
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
         }
-        
-        .panel {
-            background: rgba(255, 255, 255, 0.05);
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-online { background: #48bb78; }
+        .status-offline { background: #f56565; }
+        .controls {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
             border-radius: 15px;
-            padding: 25px;
-            margin-bottom: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.2);
+            margin-bottom: 30px;
         }
-        
-        .panel h3 {
-            margin-bottom: 20px;
-            color: #667eea;
-        }
-        
         .button {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
             padding: 10px 20px;
-            border: none;
             border-radius: 10px;
             cursor: pointer;
-            font-size: 1em;
             margin: 5px;
+            font-size: 1em;
             transition: all 0.3s;
         }
-        
-        .btn-primary { background: #667eea; color: white; }
-        .btn-success { background: #48bb78; color: white; }
-        .btn-danger { background: #f56565; color: white; }
-        .btn-warning { background: #ecc94b; color: black; }
-        
         .button:hover {
-            opacity: 0.8;
-            transform: translateY(-2px);
+            background: rgba(255,255,255,0.3);
         }
-        
+        .button.start { background: rgba(72, 187, 120, 0.5); }
+        .button.stop { background: rgba(245, 101, 101, 0.5); }
+        .button.restart { background: rgba(236, 201, 75, 0.5); }
         .logs {
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 10px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 15px;
             padding: 20px;
             color: #0f0;
             font-family: monospace;
             height: 300px;
             overflow-y: auto;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255,255,255,0.1);
         }
-        
         .public-key {
-            background: rgba(0, 0, 0, 0.3);
+            background: rgba(0,0,0,0.3);
             border-radius: 10px;
             padding: 15px;
             color: #ffd700;
@@ -768,697 +604,182 @@ HTMLEOF
             word-break: break-all;
             margin-top: 10px;
         }
-        
-        .user-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        
-        .user-table th,
-        .user-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .user-table th {
-            color: #667eea;
-        }
-        
-        .status-active { color: #48bb78; }
-        .status-inactive { color: #f56565; }
-        
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            justify-content: center;
-            align-items: center;
-        }
-        
-        .modal-content {
-            background: #1a1a2e;
-            padding: 30px;
-            border-radius: 15px;
-            width: 400px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .modal-content input {
-            width: 100%;
-            padding: 10px;
-            margin: 10px 0;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 8px;
-            color: white;
-        }
-        
-        .tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .tab {
-            padding: 10px 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            cursor: pointer;
-        }
-        
-        .tab.active {
-            background: #667eea;
-        }
     </style>
 </head>
 <body>
-    <div class="sidebar">
-        <div class="sidebar-header">
-            <h2>🚀 ELITE-X8</h2>
-            <p style="color: rgba(255,255,255,0.5);">SlowDNS Panel</p>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 ELITE-X8 SlowDNS Dashboard</h1>
+            <p>Advanced DNS Tunnel Management System</p>
         </div>
-        <ul class="sidebar-menu">
-            <li><a href="#" class="active" onclick="showSection('overview')"><span class="icon">📊</span> Overview</a></li>
-            <li><a href="#" onclick="showSection('service-control')"><span class="icon">🎮</span> Service Control</a></li>
-            <li><a href="#" onclick="showSection('user-management')"><span class="icon">👥</span> User Management</a></li>
-            <li><a href="#" onclick="showSection('server-config')"><span class="icon">⚙️</span> Server Config</a></li>
-            <li><a href="#" onclick="showSection('logs-monitor')"><span class="icon">📋</span> Logs & Monitor</a></li>
-            <li><a href="#" onclick="showSection('ssh-manager')"><span class="icon">🔐</span> SSH Manager</a></li>
-        </ul>
-    </div>
-    
-    <div class="main-content">
-        <div class="top-bar">
-            <h1 id="sectionTitle">📊 Overview</h1>
-            <div class="user-info">
-                <span id="currentUser">User</span>
-                <button class="logout-btn" onclick="logout()">🚪 Logout</button>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>SERVER STATUS</h3>
+                <div class="value" id="serverStatus">
+                    <span class="status-indicator status-online"></span>Online
+                </div>
+            </div>
+            <div class="stat-card">
+                <h3>SLOWDNS PORT</h3>
+                <div class="value" id="slowdnsPort">5300</div>
+            </div>
+            <div class="stat-card">
+                <h3>SSH PORT</h3>
+                <div class="value" id="sshPort">22</div>
+            </div>
+            <div class="stat-card">
+                <h3>ACTIVE CONNECTIONS</h3>
+                <div class="value" id="connections">0</div>
             </div>
         </div>
         
-        <!-- Overview Section -->
-        <div id="overview" class="section">
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <h3>SERVER STATUS</h3>
-                    <div class="value" id="serverStatus">Online</div>
-                </div>
-                <div class="stat-card">
-                    <h3>SLOWDNS PORT</h3>
-                    <div class="value" id="slowdnsPort">5300</div>
-                </div>
-                <div class="stat-card">
-                    <h3>SSH PORT</h3>
-                    <div class="value" id="sshPort">22</div>
-                </div>
-                <div class="stat-card">
-                    <h3>ACTIVE CONNECTIONS</h3>
-                    <div class="value" id="connections">0</div>
-                </div>
-                <div class="stat-card">
-                    <h3>TOTAL USERS</h3>
-                    <div class="value" id="totalUsers">0</div>
-                </div>
-                <div class="stat-card">
-                    <h3>UPTIME</h3>
-                    <div class="value" id="uptime">0h</div>
-                </div>
-            </div>
-            
-            <div class="panel">
-                <h3>🔑 Public Key (Copy for client configuration)</h3>
-                <div class="public-key" id="publicKey">Loading...</div>
-            </div>
+        <div class="controls">
+            <h3 style="color: white; margin-bottom: 15px;">🎮 Service Controls</h3>
+            <button class="button start" onclick="controlService('start')">▶ Start All</button>
+            <button class="button stop" onclick="controlService('stop')">⏹ Stop All</button>
+            <button class="button restart" onclick="controlService('restart')">🔄 Restart All</button>
+            <button class="button" onclick="refreshStatus()">🔄 Refresh Status</button>
         </div>
         
-        <!-- Service Control Section -->
-        <div id="service-control" class="section" style="display:none;">
-            <div class="panel">
-                <h3>🎮 Service Controls</h3>
-                <button class="button btn-success" onclick="controlService('start','server-sldns')">▶ Start SlowDNS</button>
-                <button class="button btn-danger" onclick="controlService('stop','server-sldns')">⏹ Stop SlowDNS</button>
-                <button class="button btn-warning" onclick="controlService('restart','server-sldns')">🔄 Restart SlowDNS</button>
-                <br><br>
-                <button class="button btn-success" onclick="controlService('start','edns-proxy')">▶ Start EDNS Proxy</button>
-                <button class="button btn-danger" onclick="controlService('stop','edns-proxy')">⏹ Stop EDNS Proxy</button>
-                <button class="button btn-warning" onclick="controlService('restart','edns-proxy')">🔄 Restart EDNS Proxy</button>
-            </div>
+        <div class="controls">
+            <h3 style="color: white; margin-bottom: 15px;">🔑 Public Key</h3>
+            <div class="public-key" id="publicKey">Loading...</div>
         </div>
         
-        <!-- User Management Section -->
-        <div id="user-management" class="section" style="display:none;">
-            <div class="panel">
-                <h3>👥 User Management</h3>
-                <button class="button btn-primary" onclick="openAddUserModal()">➕ Add New User</button>
-                <br><br>
-                <div id="usersList"></div>
-            </div>
-        </div>
-        
-        <!-- Server Config Section -->
-        <div id="server-config" class="section" style="display:none;">
-            <div class="panel">
-                <h3>⚙️ Server Configuration</h3>
-                <div id="serverConfigInfo"></div>
-            </div>
-        </div>
-        
-        <!-- Logs Section -->
-        <div id="logs-monitor" class="section" style="display:none;">
-            <div class="panel">
-                <h3>📋 Service Logs</h3>
-                <div class="tabs">
-                    <div class="tab active" onclick="loadLogs('slowdns')">SlowDNS</div>
-                    <div class="tab" onclick="loadLogs('edns')">EDNS Proxy</div>
-                    <div class="tab" onclick="loadLogs('system')">System</div>
-                </div>
-                <div class="logs" id="logs"></div>
-            </div>
-        </div>
-        
-        <!-- SSH Manager Section -->
-        <div id="ssh-manager" class="section" style="display:none;">
-            <div class="panel">
-                <h3>🔐 SSH Manager</h3>
-                <div id="sshInfo"></div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Add User Modal -->
-    <div class="modal" id="addUserModal">
-        <div class="modal-content">
-            <h3>Add New User</h3>
-            <input type="text" id="newUsername" placeholder="Username">
-            <input type="password" id="newPassword" placeholder="Password">
-            <select id="newUserRole" style="width:100%;padding:10px;margin:10px 0;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);border-radius:8px;color:white;">
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
-            </select>
-            <button class="button btn-success" onclick="addNewUser()">Create User</button>
-            <button class="button btn-danger" onclick="closeModal('addUserModal')">Cancel</button>
+        <div class="controls">
+            <h3 style="color: white; margin-bottom: 15px;">📋 Service Logs</h3>
+            <div class="logs" id="logs"></div>
         </div>
     </div>
     
     <script>
-        let currentSection = 'overview';
-        
-        // Check authentication on load
-        async function checkAuth() {
-            try {
-                const response = await fetch('/api/verify');
-                const data = await response.json();
-                
-                if (!data.authenticated) {
-                    window.location.href = '/login';
-                }
-            } catch (error) {
-                window.location.href = '/login';
-            }
+        function refreshStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('connections').textContent = data.connections || 0;
+                    document.getElementById('logs').innerHTML = data.logs || 'No logs available';
+                    document.getElementById('publicKey').textContent = data.publicKey || 'Not available';
+                })
+                .catch(err => console.error('Error:', err));
         }
         
-        // Show section
-        function showSection(section) {
-            document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
-            document.getElementById(section).style.display = 'block';
-            
-            const titles = {
-                'overview': '📊 Overview',
-                'service-control': '🎮 Service Control',
-                'user-management': '👥 User Management',
-                'server-config': '⚙️ Server Configuration',
-                'logs-monitor': '📋 Logs & Monitor',
-                'ssh-manager': '🔐 SSH Manager'
-            };
-            
-            document.getElementById('sectionTitle').textContent = titles[section] || section;
-            currentSection = section;
-            
-            // Update active menu
-            document.querySelectorAll('.sidebar-menu a').forEach(a => a.classList.remove('active'));
-            event.target.classList.add('active');
-        }
-        
-        // Service control
-        async function controlService(action, service) {
-            try {
-                const response = await fetch('/api/service-control', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ action, service })
-                });
-                const data = await response.json();
+        function controlService(action) {
+            fetch('/api/control', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action: action})
+            })
+            .then(response => response.json())
+            .then(data => {
                 alert(data.message);
-                refreshDashboard();
-            } catch (error) {
-                alert('Error: ' + error);
-            }
+                refreshStatus();
+            })
+            .catch(err => alert('Error: ' + err));
         }
         
-        // User management
-        function openAddUserModal() {
-            document.getElementById('addUserModal').style.display = 'flex';
-        }
-        
-        function closeModal(modalId) {
-            document.getElementById(modalId).style.display = 'none';
-        }
-        
-        async function addNewUser() {
-            const username = document.getElementById('newUsername').value;
-            const password = document.getElementById('newPassword').value;
-            const role = document.getElementById('newUserRole').value;
-            
-            if (!username || !password) {
-                alert('Please fill all fields');
-                return;
-            }
-            
-            try {
-                const response = await fetch('/api/add-user', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ username, password, role })
-                });
-                const data = await response.json();
-                alert(data.message);
-                closeModal('addUserModal');
-                loadUsers();
-            } catch (error) {
-                alert('Error: ' + error);
-            }
-        }
-        
-        async function removeUser(username) {
-            if (!confirm(`Remove user ${username}?`)) return;
-            
-            try {
-                const response = await fetch('/api/remove-user', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ username })
-                });
-                const data = await response.json();
-                alert(data.message);
-                loadUsers();
-            } catch (error) {
-                alert('Error: ' + error);
-            }
-        }
-        
-        async function loadUsers() {
-            try {
-                const response = await fetch('/api/list-users');
-                const data = await response.json();
-                
-                let html = '<table class="user-table"><tr><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr>';
-                
-                data.users.forEach(user => {
-                    html += `<tr>
-                        <td>${user.username}</td>
-                        <td>${user.role}</td>
-                        <td><span class="status-${user.status}">${user.status}</span></td>
-                        <td>
-                            <button class="button btn-warning" onclick="changePassword('${user.username}')">🔑 Password</button>
-                            <button class="button btn-danger" onclick="removeUser('${user.username}')">🗑 Remove</button>
-                        </td>
-                    </tr>`;
-                });
-                
-                html += '</table>';
-                document.getElementById('usersList').innerHTML = html;
-            } catch (error) {
-                document.getElementById('usersList').innerHTML = 'Error loading users';
-            }
-        }
-        
-        async function changePassword(username) {
-            const newPass = prompt(`Enter new password for ${username}:`);
-            if (!newPass) return;
-            
-            try {
-                const response = await fetch('/api/change-password', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ username, password: newPass })
-                });
-                const data = await response.json();
-                alert(data.message);
-            } catch (error) {
-                alert('Error: ' + error);
-            }
-        }
-        
-        // Logs
-        async function loadLogs(type) {
-            try {
-                const response = await fetch(`/api/logs?service=${type}`);
-                const data = await response.json();
-                document.getElementById('logs').innerHTML = data.logs || 'No logs available';
-            } catch (error) {
-                document.getElementById('logs').innerHTML = 'Error loading logs';
-            }
-        }
-        
-        // Refresh dashboard
-        async function refreshDashboard() {
-            try {
-                const response = await fetch('/api/status');
-                const data = await response.json();
-                
-                document.getElementById('connections').textContent = data.connections || 0;
-                document.getElementById('publicKey').textContent = data.publicKey || 'Not available';
-                document.getElementById('totalUsers').textContent = data.totalUsers || 0;
-                document.getElementById('uptime').textContent = data.uptime || '0h';
-                
-                if (currentSection === 'user-management') loadUsers();
-                if (currentSection === 'logs-monitor') loadLogs('slowdns');
-            } catch (error) {
-                console.error('Refresh error:', error);
-            }
-        }
-        
-        // Logout
-        async function logout() {
-            await fetch('/api/logout', { method: 'POST' });
-            window.location.href = '/login';
-        }
-        
-        // Initialize
-        checkAuth();
-        refreshDashboard();
-        setInterval(refreshDashboard, 5000);
+        // Auto refresh
+        setInterval(refreshStatus, 5000);
+        refreshStatus();
     </script>
 </body>
 </html>
 HTMLEOF
-
-    # Create enhanced API server with user management
-    cat > /usr/local/bin/slowdns-api.py << 'APIEOF'
+    
+    # Create API server
+    cat > /usr/local/bin/slowdns-api << 'APIEOF'
 #!/usr/bin/env python3
 import http.server
 import json
 import subprocess
 import os
 import sys
-import time
-import re
-from urllib.parse import urlparse, parse_qs
-
-USERS_DB = "/etc/slowdns/users.db"
-LOG_FILE = "/var/log/slowdns-install.log"
-
-def hash_password(password):
-    import hashlib
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def verify_credentials(username, password):
-    try:
-        with open(USERS_DB, 'r') as f:
-            for line in f:
-                parts = line.strip().split(':')
-                if len(parts) >= 4 and parts[0] == username:
-                    stored_hash = parts[1]
-                    status = parts[3]
-                    if hash_password(password) == stored_hash and status == 'active':
-                        return True
-    except:
-        pass
-    return False
-
-def add_user_to_db(username, password, role='user'):
-    try:
-        with open(USERS_DB, 'r') as f:
-            if any(line.startswith(username + ':') for line in f):
-                return False, "User already exists"
-        
-        with open(USERS_DB, 'a') as f:
-            pass_hash = hash_password(password)
-            f.write(f"{username}:{pass_hash}:{role}:active:{int(time.time())}\n")
-        return True, "User created successfully"
-    except Exception as e:
-        return False, str(e)
-
-def remove_user_from_db(username):
-    try:
-        if username == 'elite-x':
-            return False, "Cannot remove admin user"
-        
-        with open(USERS_DB, 'r') as f:
-            lines = f.readlines()
-        
-        with open(USERS_DB, 'w') as f:
-            for line in lines:
-                if not line.startswith(username + ':'):
-                    f.write(line)
-        return True, "User removed successfully"
-    except Exception as e:
-        return False, str(e)
-
-def list_users_from_db():
-    users = []
-    try:
-        with open(USERS_DB, 'r') as f:
-            for line in f:
-                parts = line.strip().split(':')
-                if len(parts) >= 4:
-                    users.append({
-                        'username': parts[0],
-                        'role': parts[2],
-                        'status': parts[3]
-                    })
-    except:
-        pass
-    return users
-
-def change_user_password(username, new_password):
-    try:
-        with open(USERS_DB, 'r') as f:
-            lines = f.readlines()
-        
-        with open(USERS_DB, 'w') as f:
-            for line in lines:
-                parts = line.strip().split(':')
-                if parts[0] == username:
-                    new_hash = hash_password(new_password)
-                    f.write(f"{username}:{new_hash}:{parts[2]}:{parts[3]}:{parts[4]}\n")
-                else:
-                    f.write(line)
-        return True, "Password changed successfully"
-    except Exception as e:
-        return False, str(e)
-
-def get_system_status():
-    status = {
-        'connections': 0,
-        'publicKey': 'Not available',
-        'totalUsers': 0,
-        'uptime': '0h',
-        'slowdns_running': False,
-        'edns_running': False,
-        'dashboard_running': False
-    }
-    
-    # Check services
-    try:
-        result = subprocess.run(['systemctl', 'is-active', 'server-sldns'], 
-                              capture_output=True, text=True)
-        status['slowdns_running'] = result.stdout.strip() == 'active'
-    except:
-        pass
-    
-    try:
-        result = subprocess.run(['systemctl', 'is-active', 'edns-proxy'], 
-                              capture_output=True, text=True)
-        status['edns_running'] = result.stdout.strip() == 'active'
-    except:
-        pass
-    
-    # Get connections
-    try:
-        result = subprocess.run(['ss', '-tn'], capture_output=True, text=True)
-        status['connections'] = len([l for l in result.stdout.split('\n') if ':22' in l or ':5300' in l])
-    except:
-        pass
-    
-    # Get public key
-    try:
-        with open('/etc/slowdns/server.pub', 'r') as f:
-            status['publicKey'] = f.read().strip()
-    except:
-        pass
-    
-    # Get users count
-    try:
-        with open(USERS_DB, 'r') as f:
-            status['totalUsers'] = len(f.readlines())
-    except:
-        pass
-    
-    # Get uptime
-    try:
-        with open('/proc/uptime', 'r') as f:
-            uptime_seconds = float(f.readline().split()[0])
-            hours = int(uptime_seconds // 3600)
-            minutes = int((uptime_seconds % 3600) // 60)
-            status['uptime'] = f"{hours}h {minutes}m"
-    except:
-        pass
-    
-    return status
-
-def control_service(action, service):
-    try:
-        subprocess.run(['systemctl', action, service], check=True)
-        return True, f"Service {service} {action}ed successfully"
-    except Exception as e:
-        return False, str(e)
-
-def get_logs(service='slowdns'):
-    try:
-        if service == 'slowdns':
-            result = subprocess.run(['journalctl', '-u', 'server-sldns', '--no-pager', '-n', '50'],
-                                  capture_output=True, text=True, timeout=5)
-        elif service == 'edns':
-            result = subprocess.run(['journalctl', '-u', 'edns-proxy', '--no-pager', '-n', '50'],
-                                  capture_output=True, text=True, timeout=5)
-        else:
-            result = subprocess.run(['tail', '-n', '50', LOG_FILE],
-                                  capture_output=True, text=True, timeout=5)
-        return result.stdout or 'No logs available'
-    except:
-        return 'Error fetching logs'
-
-def parse_cookies(headers):
-    cookies = {}
-    if 'Cookie' in headers:
-        for cookie in headers['Cookie'].split(';'):
-            if '=' in cookie:
-                key, value = cookie.strip().split('=', 1)
-                cookies[key.strip()] = value.strip()
-    return cookies
+from urllib.parse import urlparse
 
 class SlowDNSAPI(http.server.BaseHTTPRequestHandler):
-    
     def do_GET(self):
-        parsed = urlparse(self.path)
-        path = parsed.path
-        
-        # Serve static files
-        if path == '/' or path == '/dashboard':
-            self.serve_file('/etc/slowdns/dashboard/index.html', 'text/html')
-        elif path == '/login':
-            self.serve_file('/etc/slowdns/dashboard/login.html', 'text/html')
-        elif path == '/api/status':
-            self.send_json_response(get_system_status())
-        elif path == '/api/list-users':
-            self.send_json_response({'users': list_users_from_db()})
-        elif path == '/api/logs':
-            service = parse_qs(parsed.query).get('service', ['slowdns'])[0]
-            self.send_json_response({'logs': get_logs(service)})
-        elif path == '/api/verify':
-            cookies = parse_cookies(self.headers)
-            if 'session' in cookies:
-                self.send_json_response({'authenticated': True})
-            else:
-                self.send_json_response({'authenticated': False}, 401)
-        else:
-            self.send_error(404)
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            with open('/etc/slowdns/dashboard/index.html', 'rb') as f:
+                self.wfile.write(f.read())
+        elif self.path == '/api/status':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            # Get connections
+            connections = 0
+            try:
+                result = subprocess.run(['ss', '-tn'], capture_output=True, text=True)
+                connections = len([l for l in result.stdout.split('\n') if ':22' in l or ':5300' in l])
+            except:
+                pass
+            
+            # Get logs
+            logs = "No logs available"
+            try:
+                result = subprocess.run(['journalctl', '-u', 'server-sldns', '--no-pager', '-n', '20'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.stdout:
+                    logs = result.stdout
+            except:
+                pass
+            
+            # Get public key
+            public_key = "Not available"
+            try:
+                with open('/etc/slowdns/server.pub', 'r') as f:
+                    public_key = f.read().strip()
+            except:
+                pass
+            
+            status = {
+                'connections': connections,
+                'logs': logs,
+                'publicKey': public_key,
+                'slowdns_status': 'running' if os.system('systemctl is-active --quiet server-sldns') == 0 else 'stopped',
+                'edns_status': 'running' if os.system('systemctl is-active --quiet edns-proxy') == 0 else 'stopped'
+            }
+            
+            self.wfile.write(json.dumps(status).encode())
     
     def do_POST(self):
-        content_length = int(self.headers.get('Content-Length', 0))
-        post_data = self.rfile.read(content_length)
-        data = json.loads(post_data.decode() if post_data else '{}')
-        
-        parsed = urlparse(self.path)
-        path = parsed.path
-        
-        if path == '/api/login':
-            username = data.get('username', '')
-            password = data.get('password', '')
+        if self.path == '/api/control':
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode())
+            action = data.get('action')
             
-            if verify_credentials(username, password):
-                response = {
-                    'status': 'success',
-                    'session': 'active_session',
-                    'username': username
-                }
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Set-Cookie', 'session=active_session; Path=/; HttpOnly')
-                self.end_headers()
-                self.wfile.write(json.dumps(response).encode())
-            else:
-                self.send_json_response({'status': 'error', 'message': 'Invalid credentials'}, 401)
-        
-        elif path == '/api/logout':
+            message = "Action performed"
+            try:
+                if action == 'start':
+                    subprocess.run(['systemctl', 'start', 'server-sldns', 'edns-proxy'])
+                    message = "Services started successfully"
+                elif action == 'stop':
+                    subprocess.run(['systemctl', 'stop', 'server-sldns', 'edns-proxy'])
+                    message = "Services stopped successfully"
+                elif action == 'restart':
+                    subprocess.run(['systemctl', 'restart', 'server-sldns', 'edns-proxy'])
+                    message = "Services restarted successfully"
+            except Exception as e:
+                message = f"Error: {str(e)}"
+            
             self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Set-Cookie', 'session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT')
+            self.send_header('Content-type', 'application/json')
             self.end_headers()
-            self.wfile.write(json.dumps({'status': 'success', 'message': 'Logged out'}).encode())
-        
-        elif path == '/api/add-user':
-            username = data.get('username', '')
-            password = data.get('password', '')
-            role = data.get('role', 'user')
-            
-            success, message = add_user_to_db(username, password, role)
-            self.send_json_response({'status': 'success' if success else 'error', 'message': message})
-        
-        elif path == '/api/remove-user':
-            username = data.get('username', '')
-            success, message = remove_user_from_db(username)
-            self.send_json_response({'status': 'success' if success else 'error', 'message': message})
-        
-        elif path == '/api/change-password':
-            username = data.get('username', '')
-            password = data.get('password', '')
-            
-            success, message = change_user_password(username, password)
-            self.send_json_response({'status': 'success' if success else 'error', 'message': message})
-        
-        elif path == '/api/service-control':
-            action = data.get('action', '')
-            service = data.get('service', '')
-            
-            success, message = control_service(action, service)
-            self.send_json_response({'status': 'success' if success else 'error', 'message': message})
-        
-        else:
-            self.send_error(404)
-    
-    def serve_file(self, filepath, content_type):
-        try:
-            with open(filepath, 'rb') as f:
-                content = f.read()
-            self.send_response(200)
-            self.send_header('Content-Type', content_type)
-            self.end_headers()
-            self.wfile.write(content)
-        except:
-            self.send_error(404)
-    
-    def send_json_response(self, data, status=200):
-        self.send_response(status)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
+            self.wfile.write(json.dumps({'message': message}).encode())
 
 if __name__ == '__main__':
     server = http.server.HTTPServer(('0.0.0.0', 8080), SlowDNSAPI)
     print("SlowDNS API Server running on port 8080")
     server.serve_forever()
 APIEOF
-
-    chmod +x /usr/local/bin/slowdns-api.py
+    
+    chmod +x /usr/local/bin/slowdns-api
     
     # Create dashboard service
     cat > /etc/systemd/system/slowdns-dashboard.service << EOF
@@ -1468,46 +789,150 @@ After=network.target server-sldns.service edns-proxy.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /usr/local/bin/slowdns-api.py
+ExecStart=/usr/bin/python3 /usr/local/bin/slowdns-api
 Restart=always
 User=root
 
 [Install]
 WantedBy=multi-user.target
 EOF
-
-    print_success "Dashboard with login created successfully"
+    
+    print_success "Dashboard created successfully"
     print_step_end
 }
 
 # ============================================================================
-# MAIN INSTALLATION FUNCTION
+# CREATE SERVICES
 # ============================================================================
-main_installation() {
-    print_banner
+create_services() {
+    print_step "5"
+    print_info "Creating System Services"
     
-    # Get nameserver
-    echo -e "${WHITE}${BOLD}Configure Your Nameserver:${NC}"
-    echo -e "${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}Example:${NC} dns.google.com, dns.cloudflare.com            ${CYAN}│${NC}"
-    echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
-    read -p "$(echo -e "${WHITE}${BOLD}Enter nameserver: ${NC}")" NAMESERVER
-    NAMESERVER=${NAMESERVER:-dns.google.com}
+    # SlowDNS Service
+    cat > /etc/systemd/system/server-sldns.service << EOF
+[Unit]
+Description=ELITE-X8 SlowDNS Server
+After=network.target sshd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/etc/slowdns/dnstt-server -udp :$SLOWDNS_PORT -mtu 1200 -privkey-file /etc/slowdns/server.key $NAMESERVER 127.0.0.1:$SSHD_PORT
+Restart=always
+RestartSec=5
+User=root
+LimitNOFILE=65536
+LimitCORE=infinity
+
+[Install]
+WantedBy=multi-user.target
+EOF
     
-    # Get server IP
-    SERVER_IP=$(curl -s --connect-timeout 5 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+    # EDNS Proxy Service
+    cat > /etc/systemd/system/edns-proxy.service << EOF
+[Unit]
+Description=EDNS Proxy for SlowDNS
+After=server-sldns.service
+Requires=server-sldns.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/edns-proxy
+Restart=always
+RestartSec=3
+User=root
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
     
-    check_requirements
-    download_files
-    configure_ssh
-    compile_edns
-    compile_auth_server
-    init_users_db
-    create_dashboard
-    create_services
-    configure_firewall
-    start_services
-    show_summary
+    print_success "Service files created"
+    print_step_end
+}
+
+# ============================================================================
+# CONFIGURE FIREWALL
+# ============================================================================
+configure_firewall() {
+    print_step "6"
+    print_info "Configuring Firewall Rules"
+    
+    # Stop conflicting services
+    systemctl stop systemd-resolved 2>/dev/null
+    fuser -k 53/udp 2>/dev/null
+    
+    # Disable IPv6
+    echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null
+    
+    # Configure iptables
+    iptables -F
+    iptables -X
+    iptables -t nat -F
+    
+    iptables -P INPUT ACCEPT
+    iptables -P FORWARD ACCEPT
+    iptables -P OUTPUT ACCEPT
+    
+    # Allow essential ports
+    iptables -A INPUT -i lo -j ACCEPT
+    iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+    iptables -A INPUT -p tcp --dport $SSHD_PORT -j ACCEPT
+    iptables -A INPUT -p udp --dport $SLOWDNS_PORT -j ACCEPT
+    iptables -A INPUT -p udp --dport 53 -j ACCEPT
+    iptables -A INPUT -p tcp --dport $DASHBOARD_PORT -j ACCEPT
+    iptables -A INPUT -p icmp -j ACCEPT
+    
+    print_success "Firewall configured"
+    print_step_end
+}
+
+# ============================================================================
+# START SERVICES
+# ============================================================================
+start_services() {
+    print_step "7"
+    print_info "Starting All Services"
+    
+    systemctl daemon-reload
+    
+    # Start SlowDNS
+    systemctl enable server-sldns > /dev/null 2>&1
+    systemctl start server-sldns
+    sleep 2
+    
+    if systemctl is-active --quiet server-sldns; then
+        print_success "SlowDNS service started"
+    else
+        print_warning "Starting SlowDNS in background mode"
+        /etc/slowdns/dnstt-server -udp :$SLOWDNS_PORT -mtu 1200 -privkey-file /etc/slowdns/server.key $NAMESERVER 127.0.0.1:$SSHD_PORT &
+    fi
+    
+    # Start EDNS Proxy
+    systemctl enable edns-proxy > /dev/null 2>&1
+    systemctl start edns-proxy
+    sleep 2
+    
+    if systemctl is-active --quiet edns-proxy; then
+        print_success "EDNS Proxy service started"
+    else
+        print_warning "Starting EDNS Proxy in background mode"
+        /usr/local/bin/edns-proxy &
+    fi
+    
+    # Start Dashboard
+    systemctl enable slowdns-dashboard > /dev/null 2>&1
+    systemctl start slowdns-dashboard
+    sleep 2
+    
+    if systemctl is-active --quiet slowdns-dashboard; then
+        print_success "Dashboard service started"
+    else
+        print_warning "Dashboard started in background mode"
+        python3 /usr/local/bin/slowdns-api &
+    fi
+    
+    print_step_end
 }
 
 # ============================================================================
@@ -1524,28 +949,62 @@ show_summary() {
     echo -e "${CYAN}│${NC} ${YELLOW}●${NC} SlowDNS Port:   ${WHITE}$SLOWDNS_PORT${NC}"
     echo -e "${CYAN}│${NC} ${YELLOW}●${NC} EDNS Port:      ${WHITE}53${NC}"
     echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Dashboard:      ${WHITE}http://$SERVER_IP:$DASHBOARD_PORT${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Login Page:     ${WHITE}http://$SERVER_IP:$DASHBOARD_PORT/login${NC}"
     echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Nameserver:     ${WHITE}$NAMESERVER${NC}"
-    echo -e "${CYAN}├──────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${CYAN}│${NC} ${WHITE}${BOLD}LOGIN CREDENTIALS${NC}                                    ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Username:       ${WHITE}elite-x${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Password:       ${WHITE}elite2026${NC}"
     echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
     
     # Show public key
     if [ -f /etc/slowdns/server.pub ]; then
         echo -e "\n${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
-        echo -e "${CYAN}│${NC} ${WHITE}${BOLD}PUBLIC KEY${NC}                                           ${CYAN}│${NC}"
+        echo -e "${CYAN}│${NC} ${WHITE}${BOLD}PUBLIC KEY (Copy for client configuration)${NC}           ${CYAN}│${NC}"
         echo -e "${CYAN}├──────────────────────────────────────────────────────────┤${NC}"
         echo -e "${CYAN}│${NC} ${YELLOW}$(cat /etc/slowdns/server.pub)${NC}"
         echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
     fi
     
+    echo -e "\n${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│${NC} ${WHITE}${BOLD}QUICK COMMANDS${NC}                                      ${CYAN}│${NC}"
+    echo -e "${CYAN}├──────────────────────────────────────────────────────────┤${NC}"
+    echo -e "${CYAN}│${NC} ${GREEN}systemctl status server-sldns${NC}"
+    echo -e "${CYAN}│${NC} ${GREEN}systemctl status edns-proxy${NC}"
+    echo -e "${CYAN}│${NC} ${GREEN}systemctl status slowdns-dashboard${NC}"
+    echo -e "${CYAN}│${NC} ${GREEN}journalctl -u server-sldns -f${NC}"
+    echo -e "${CYAN}│${NC} ${GREEN}ss -ulpn | grep ':53\|:5300'${NC}"
+    echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
+    
     echo -e "\n${PURPLE}╔══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${NC}    ${WHITE}🎯 ELITE-X8 SLOWDNS WITH LOGIN SYSTEM INSTALLED!${NC}       ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC}    ${WHITE}🎯 ELITE-X8 SLOWDNS INSTALLED SUCCESSFULLY!${NC}              ${PURPLE}║${NC}"
     echo -e "${PURPLE}║${NC}    ${WHITE}⚡ Dashboard: http://$SERVER_IP:$DASHBOARD_PORT${NC}             ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC}    ${WHITE}🔐 Login: http://$SERVER_IP:$DASHBOARD_PORT/login${NC}          ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC}    ${WHITE}📁 Repository: https://github.com/ELITE-X8/setup.sh${NC}       ${PURPLE}║${NC}"
     echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════════╝${NC}"
+}
+
+# ============================================================================
+# MAIN FUNCTION
+# ============================================================================
+main() {
+    print_banner
+    
+    # Get nameserver
+    echo -e "${WHITE}${BOLD}Configure Your Nameserver:${NC}"
+    echo -e "${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}Example:${NC} dns.google.com, dns.cloudflare.com            ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}Custom:${NC}  yourdomain.com, ns1.yourserver.com           ${CYAN}│${NC}"
+    echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
+    read -p "$(echo -e "${WHITE}${BOLD}Enter nameserver: ${NC}")" NAMESERVER
+    NAMESERVER=${NAMESERVER:-dns.google.com}
+    
+    # Get server IP
+    SERVER_IP=$(curl -s --connect-timeout 5 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+    
+    check_requirements
+    download_files
+    configure_ssh
+    compile_edns
+    create_dashboard
+    create_services
+    configure_firewall
+    start_services
+    show_summary
 }
 
 # ============================================================================
@@ -1556,7 +1015,7 @@ trap 'echo -e "\n${RED}✗ Installation interrupted!${NC}"; log_message "Install
 # Initialize log
 echo "=== SLOWDNS INSTALLATION STARTED $(date) ===" > "$LOG_FILE"
 
-if main_installation; then
+if main; then
     echo "=== INSTALLATION COMPLETED SUCCESSFULLY $(date) ===" >> "$LOG_FILE"
     exit 0
 else
