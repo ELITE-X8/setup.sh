@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ============================================================================
-#                     SLOWDNS MAX ULTRA SPEED INSTALLATION SCRIPT
-#                          ELITE-X8 EDITION - OPTIMIZED
+#                     SLOWDNS MODERN INSTALLATION SCRIPT
+#                          ELITE-X8 EDITION
 # ============================================================================
 
 # Ensure running as root
@@ -69,7 +69,7 @@ print_step_end() {
 print_banner() {
     clear
     echo -e "${PURPLE}╔══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${NC}${CYAN}          🚀 ELITE-X8 SLOWDNS MAX ULTRA SPEED EDITION${NC}        ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC}${CYAN}          🚀 ELITE-X8 SLOWDNS MODERN INSTALLATION SCRIPT${NC}       ${PURPLE}║${NC}"
     echo -e "${PURPLE}║${NC}${WHITE}            Fast & Professional Configuration${NC}                  ${PURPLE}║${NC}"
     echo -e "${PURPLE}║${NC}${YELLOW}                Optimized for Maximum Performance${NC}              ${PURPLE}║${NC}"
     echo -e "${PURPLE}║${NC}${GREEN}                   Panel Dashboard Included${NC}                    ${PURPLE}║${NC}"
@@ -100,166 +100,6 @@ print_info() {
 }
 
 # ============================================================================
-# DISABLE IPV6 COMPLETELY
-# ============================================================================
-disable_ipv6() {
-    print_step "1"
-    print_info "Disabling IPv6 completely for maximum performance"
-    
-    # Disable via sysctl
-    cat >> /etc/sysctl.conf << 'EOF'
-
-# ============================================================================
-# ELITE-X8: COMPLETE IPV6 DISABLE FOR MAX PERFORMANCE
-# ============================================================================
-net.ipv6.conf.all.disable_ipv6 = 1
-net.ipv6.conf.default.disable_ipv6 = 1
-net.ipv6.conf.lo.disable_ipv6 = 1
-EOF
-    
-    # Apply immediately
-    sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1
-    sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null 2>&1
-    sysctl -w net.ipv6.conf.lo.disable_ipv6=1 >/dev/null 2>&1
-    
-    # Disable IPv6 in GRUB for complete kernel-level disable
-    if [ -f /etc/default/grub ]; then
-        if ! grep -q "ipv6.disable=1" /etc/default/grub; then
-            sed -i 's/GRUB_CMDLINE_LINUX="/GRUB_CMDLINE_LINUX="ipv6.disable=1 /' /etc/default/grub
-            update-grub >/dev/null 2>&1 || grub2-mkconfig -o /boot/grub2/grub.cfg >/dev/null 2>&1
-        fi
-    fi
-    
-    print_success "IPv6 completely disabled"
-    print_step_end
-}
-
-# ============================================================================
-# KERNEL OPTIMIZATION FOR MAX ULTRA SPEED
-# ============================================================================
-optimize_kernel() {
-    print_step "2"
-    print_info "Applying Kernel optimizations for Max Ultra Speed"
-    
-    # Backup original sysctl.conf
-    cp /etc/sysctl.conf /etc/sysctl.conf.backup.$(date +%Y%m%d) 2>/dev/null
-    
-    cat >> /etc/sysctl.conf << 'EOF'
-
-# ============================================================================
-# ELITE-X8: MAX ULTRA SPEED KERNEL OPTIMIZATIONS
-# ============================================================================
-
-# ----------------------------------------------------------------------------
-# GOOGLE BBR CONGESTION CONTROL (Massive throughput improvement)
-# ----------------------------------------------------------------------------
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-
-# ----------------------------------------------------------------------------
-# MAXIMIZE UDP BUFFERS - 16MB (Critical for DNS tunneling)
-# ----------------------------------------------------------------------------
-net.core.rmem_max = 16777216
-net.core.wmem_max = 16777216
-net.core.rmem_default = 16777216
-net.core.wmem_default = 16777216
-net.ipv4.udp_rmem_min = 16384
-net.ipv4.udp_wmem_min = 16384
-net.ipv4.udp_mem = 16777216 16777216 16777216
-
-# ----------------------------------------------------------------------------
-# MAXIMIZE TCP BUFFERS
-# ----------------------------------------------------------------------------
-net.core.optmem_max = 65536
-net.ipv4.tcp_rmem = 8192 262144 16777216
-net.ipv4.tcp_wmem = 8192 262144 16777216
-net.ipv4.tcp_mem = 16777216 16777216 16777216
-
-# ----------------------------------------------------------------------------
-# HIGH-PERFORMANCE NETWORK QUEUE SETTINGS
-# ----------------------------------------------------------------------------
-net.core.netdev_max_backlog = 500000
-net.core.somaxconn = 65535
-net.core.netdev_budget = 600
-net.core.netdev_budget_usecs = 8000
-
-# ----------------------------------------------------------------------------
-# CONNECTION TRACKING OPTIMIZATION
-# ----------------------------------------------------------------------------
-net.netfilter.nf_conntrack_max = 1048576
-net.nf_conntrack_max = 1048576
-net.netfilter.nf_conntrack_tcp_timeout_established = 3600
-net.netfilter.nf_conntrack_udp_timeout = 30
-net.netfilter.nf_conntrack_udp_timeout_stream = 180
-
-# ----------------------------------------------------------------------------
-# FAST RECOVERY & RETRANSMISSION
-# ----------------------------------------------------------------------------
-net.ipv4.tcp_fastopen = 3
-net.ipv4.tcp_retries1 = 3
-net.ipv4.tcp_retries2 = 5
-net.ipv4.tcp_syn_retries = 3
-net.ipv4.tcp_synack_retries = 3
-net.ipv4.tcp_keepalive_time = 120
-net.ipv4.tcp_keepalive_intvl = 10
-net.ipv4.tcp_keepalive_probes = 5
-net.ipv4.tcp_fin_timeout = 15
-net.ipv4.tcp_tw_reuse = 1
-
-# ----------------------------------------------------------------------------
-# INCREASE LOCAL PORT RANGE
-# ----------------------------------------------------------------------------
-net.ipv4.ip_local_port_range = 1024 65535
-
-# ----------------------------------------------------------------------------
-# REDUCE TIME_WAIT SOCKETS
-# ----------------------------------------------------------------------------
-net.ipv4.tcp_max_tw_buckets = 2000000
-net.ipv4.tcp_tw_recycle = 1
-
-# ----------------------------------------------------------------------------
-# INCREASE ARP TABLE SIZE
-# ----------------------------------------------------------------------------
-net.ipv4.neigh.default.gc_thresh1 = 4096
-net.ipv4.neigh.default.gc_thresh2 = 8192
-net.ipv4.neigh.default.gc_thresh3 = 16384
-
-# ----------------------------------------------------------------------------
-# ENABLE TCP TIMESTAMPS & SACK
-# ----------------------------------------------------------------------------
-net.ipv4.tcp_timestamps = 1
-net.ipv4.tcp_sack = 1
-net.ipv4.tcp_dsack = 1
-net.ipv4.tcp_fack = 1
-net.ipv4.tcp_window_scaling = 1
-
-# ----------------------------------------------------------------------------
-# DISABLE TCP SLOW START AFTER IDLE
-# ----------------------------------------------------------------------------
-net.ipv4.tcp_slow_start_after_idle = 0
-
-# ----------------------------------------------------------------------------
-# INCREASE MAX SOCKET BUFFER SIZE
-# ----------------------------------------------------------------------------
-net.core.netdev_max_backlog = 500000
-EOF
-    
-    # Apply all sysctl settings
-    sysctl -p >/dev/null 2>&1
-    
-    # Enable BBR if available
-    if modprobe tcp_bbr 2>/dev/null; then
-        echo "tcp_bbr" > /etc/modules-load.d/bbr.conf 2>/dev/null
-        print_success "BBR congestion control enabled"
-    else
-        print_warning "BBR not available, using default congestion control"
-    fi
-    
-    print_success "Kernel optimizations applied for Max Ultra Speed"
-    print_step_end
-}
-
-# ============================================================================
 # CHECK SYSTEM REQUIREMENTS
 # ============================================================================
 check_requirements() {
@@ -279,10 +119,6 @@ check_requirements() {
     # Check architecture
     ARCH=$(uname -m)
     print_success "Architecture: $ARCH"
-    
-    # Check CPU cores
-    CORES=$(nproc)
-    print_success "CPU Cores: $CORES (Multi-core ready)"
     
     # Check memory
     MEM=$(free -m | awk '/^Mem:/{print $2}')
@@ -305,7 +141,7 @@ check_requirements() {
 # DOWNLOAD FILES FROM GITHUB
 # ============================================================================
 download_files() {
-    print_step "3"
+    print_step "1"
     print_info "Downloading files from ELITE-X8 Repository"
     
     mkdir -p /etc/slowdns
@@ -361,16 +197,16 @@ download_files() {
 }
 
 # ============================================================================
-# CONFIGURE SSH
+# CONFIGURE SSH - INABAKI KAMA ILIVYOKUWA ORIGINAL
 # ============================================================================
 configure_ssh() {
-    print_step "4"
+    print_step "2"
     print_info "Configuring OpenSSH on port $SSHD_PORT"
     
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup 2>/dev/null
     
     cat > /etc/ssh/sshd_config << EOF
-# ELITE-X8 SLOWDNS SSH CONFIGURATION - ACHEWE KUGUSWA
+# ELITE-X8 SLOWDNS SSH CONFIGURATION
 Port $SSHD_PORT
 Protocol 2
 PermitRootLogin yes
@@ -393,14 +229,13 @@ MaxSessions 100
 MaxStartups 100:30:200
 LoginGraceTime 30
 UseDNS no
-AddressFamily inet
 EOF
     
-    systemctl restart sshd 2>/dev/null
+    systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null
     sleep 2
     
-    if systemctl is-active --quiet sshd; then
-        print_success "SSH configured on port $SSHD_PORT (IPv4 only)"
+    if systemctl is-active --quiet sshd 2>/dev/null || systemctl is-active --quiet ssh 2>/dev/null; then
+        print_success "SSH configured on port $SSHD_PORT"
     else
         print_error "SSH configuration failed"
         log_message "ERROR: SSH restart failed"
@@ -409,11 +244,65 @@ EOF
 }
 
 # ============================================================================
-# COMPILE EDNS PROXY - MAX ULTRA SPEED VERSION
+# KERNEL OPTIMIZATION - BBR + BUFFERS (HAIATHIRI SSH)
+# ============================================================================
+optimize_kernel() {
+    print_step "3"
+    print_info "Applying Kernel Optimizations for Better Speed"
+    
+    # Backup original sysctl.conf
+    cp /etc/sysctl.conf /etc/sysctl.conf.backup.$(date +%Y%m%d) 2>/dev/null
+    
+    cat >> /etc/sysctl.conf << 'EOF'
+
+# ============================================================================
+# ELITE-X8: PERFORMANCE OPTIMIZATIONS
+# ============================================================================
+
+# BBR Congestion Control
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+
+# Increased UDP buffers
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.core.rmem_default = 262144
+net.core.wmem_default = 262144
+
+# Network backlog
+net.core.netdev_max_backlog = 500000
+net.core.somaxconn = 65535
+
+# TCP optimizations
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_keepalive_time = 120
+net.ipv4.tcp_max_tw_buckets = 2000000
+net.ipv4.ip_local_port_range = 1024 65535
+
+# Disable IPv6 (optional, inakataa overhead)
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+EOF
+    
+    # Apply settings
+    sysctl -p >/dev/null 2>&1
+    
+    # Try to enable BBR
+    modprobe tcp_bbr 2>/dev/null && echo "tcp_bbr" > /etc/modules-load.d/bbr.conf 2>/dev/null
+    
+    print_success "Kernel optimized (BBR + UDP buffers)"
+    print_step_end
+}
+
+# ============================================================================
+# COMPILE EDNS PROXY - SIMPLE VERSION
 # ============================================================================
 compile_edns() {
-    print_step "5"
-    print_info "Compiling Max Ultra Speed EDNS Proxy with SO_REUSEPORT"
+    print_step "4"
+    print_info "Compiling EDNS Proxy"
     
     # Install compiler if needed
     if ! command -v gcc &>/dev/null; then
@@ -422,19 +311,7 @@ compile_edns() {
         apt-get install -y -qq gcc make > /dev/null 2>&1
     fi
     
-    # Get number of CPU cores for optimal threading
-    CPU_CORES=$(nproc)
-    print_info "Detected $CPU_CORES CPU cores - enabling multi-core processing"
-    
     cat > /tmp/edns.c << 'EOF'
-/*
- * ============================================================================
- * ELITE-X8 MAX ULTRA SPEED EDNS PROXY
- * IPv4 Only - SO_REUSEPORT Multi-Core - High Performance
- * ============================================================================
- */
-
-#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -447,25 +324,17 @@ compile_edns() {
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/epoll.h>
-#include <sys/types.h>
-#include <sched.h>
 
-/* ============================================================================
- * CONFIGURATION CONSTANTS
- * ============================================================================ */
 #define LISTEN_PORT 53
 #define SLOWDNS_PORT 5300
 #define BUFFER_SIZE 4096
-#define UPSTREAM_POOL 64        /* Increased pool for more concurrent connections */
-#define MAX_EVENTS 8192         /* Handle more events simultaneously */
-#define REQ_TABLE_SIZE 131072   /* Larger hash table for request tracking */
+#define UPSTREAM_POOL 32
+#define SOCKET_TIMEOUT 1.0
+#define MAX_EVENTS 4096
+#define REQ_TABLE_SIZE 65536
 #define EXT_EDNS 512
 #define INT_EDNS 1500
-#define SOCKET_TIMEOUT 2.0      /* 2 seconds timeout */
 
-/* ============================================================================
- * DATA STRUCTURES
- * ============================================================================ */
 typedef struct {
     int fd;
     int busy;
@@ -481,338 +350,183 @@ typedef struct req_entry {
     struct req_entry *next;
 } req_entry_t;
 
-/* ============================================================================
- * GLOBAL VARIABLES
- * ============================================================================ */
 static upstream_t upstreams[UPSTREAM_POOL];
 static req_entry_t *req_table[REQ_TABLE_SIZE];
 static int sock, epoll_fd;
 static volatile sig_atomic_t shutdown_flag = 0;
 
-/* ============================================================================
- * UTILITY FUNCTIONS
- * ============================================================================ */
-
-static inline double now(void) {
+double now() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec + ts.tv_nsec / 1e9;
 }
 
-static inline uint16_t get_txid(unsigned char *b) {
+uint16_t get_txid(unsigned char *b) {
     return ((uint16_t)b[0] << 8) | b[1];
 }
 
-static inline uint32_t req_hash(uint16_t id) {
-    /* Fast hash using bit mixing */
-    uint32_t h = id;
-    h = (h ^ (h >> 8)) * 0x45d9f3b;
-    h = (h ^ (h >> 8)) * 0x45d9f3b;
-    return h & (REQ_TABLE_SIZE - 1);
+uint32_t req_hash(uint16_t id) {
+    return id & (REQ_TABLE_SIZE - 1);
 }
 
-/* ============================================================================
- * EDNS PATCH FUNCTION
- * ============================================================================ */
-static int patch_edns(unsigned char *buf, int len, int size) {
+int patch_edns(unsigned char *buf, int len, int size) {
     if (len < 12) return len;
-    
     int off = 12;
-    
-    /* Skip question section */
     int qd = (buf[4] << 8) | buf[5];
-    for (int i = 0; i < qd; i++) {
-        while (off < len && buf[off] != 0) off++;
-        if (off >= len) return len;
-        off++; /* Skip null terminator */
-        off += 4; /* Skip QTYPE and QCLASS */
-        if (off >= len) return len;
+    for (int i=0;i<qd;i++) {
+        while (buf[off]) off++;
+        off += 5;
     }
-    
-    /* Check additional records for EDNS */
     int ar = (buf[10] << 8) | buf[11];
-    for (int i = 0; i < ar; i++) {
-        if (off + 11 < len &&
-            buf[off] == 0x00 &&
-            buf[off + 1] == 0x00 &&
-            buf[off + 2] == 0x29) { /* OPT record type */
-            
-            /* Patch EDNS buffer size */
-            buf[off + 3] = (size >> 8) & 0xFF;
-            buf[off + 4] = size & 0xFF;
+    for (int i=0;i<ar;i++) {
+        if (buf[off]==0 && off+4<len && ((buf[off+1]<<8)|buf[off+2])==41) {
+            buf[off+3]=size>>8;
+            buf[off+4]=size&255;
             return len;
         }
         off++;
-        if (off >= len) return len;
     }
-    
     return len;
 }
 
-/* ============================================================================
- * UPSTREAM POOL MANAGEMENT
- * ============================================================================ */
-static int get_upstream(void) {
+int get_upstream() {
     time_t t = time(NULL);
-    
-    /* First pass: find free or timed-out upstream */
-    for (int i = 0; i < UPSTREAM_POOL; i++) {
-        if (upstreams[i].busy && (t - upstreams[i].last_used) > 2) {
+    for (int i=0;i<UPSTREAM_POOL;i++) {
+        if (upstreams[i].busy && t - upstreams[i].last_used > 2)
             upstreams[i].busy = 0;
-        }
         if (!upstreams[i].busy) {
             upstreams[i].busy = 1;
             upstreams[i].last_used = t;
             return i;
         }
     }
-    
     return -1;
 }
 
-static inline void release_upstream(int i) {
-    if (i >= 0 && i < UPSTREAM_POOL) {
-        upstreams[i].busy = 0;
-    }
+void release_upstream(int i) {
+    if (i>=0 && i<UPSTREAM_POOL) upstreams[i].busy = 0;
 }
 
-/* ============================================================================
- * REQUEST TABLE MANAGEMENT
- * ============================================================================ */
-static void insert_req(int uidx, unsigned char *buf, struct sockaddr_in *c, socklen_t l) {
-    req_entry_t *e = calloc(1, sizeof(*e));
-    if (!e) return;
-    
+void insert_req(int uidx, unsigned char *buf, struct sockaddr_in *c, socklen_t l) {
+    req_entry_t *e = calloc(1,sizeof(*e));
     e->upstream_idx = uidx;
     e->req_id = get_txid(buf);
     e->timestamp = now();
     e->client_addr = *c;
     e->addr_len = l;
-    
     uint32_t h = req_hash(e->req_id);
     e->next = req_table[h];
     req_table[h] = e;
 }
 
-static req_entry_t *find_req(uint16_t id) {
+req_entry_t *find_req(uint16_t id) {
     uint32_t h = req_hash(id);
-    for (req_entry_t *e = req_table[h]; e; e = e->next) {
+    for (req_entry_t *e=req_table[h]; e; e=e->next)
         if (e->req_id == id) return e;
-    }
     return NULL;
 }
 
-static void delete_req(req_entry_t *e) {
-    if (!e) return;
-    
+void delete_req(req_entry_t *e) {
     release_upstream(e->upstream_idx);
-    
     uint32_t h = req_hash(e->req_id);
-    req_entry_t **pp = &req_table[h];
-    while (*pp) {
-        if (*pp == e) {
-            *pp = e->next;
-            free(e);
-            return;
-        }
-        pp = &(*pp)->next;
+    req_entry_t **pp=&req_table[h];
+    while(*pp){
+        if(*pp==e){ *pp=e->next; free(e); return; }
+        pp=&(*pp)->next;
     }
 }
 
-/* ============================================================================
- * CLEANUP EXPIRED REQUESTS
- * ============================================================================ */
-static void cleanup_expired(void) {
-    double t = now();
-    for (int i = 0; i < REQ_TABLE_SIZE; i++) {
-        req_entry_t **pp = &req_table[i];
-        while (*pp) {
-            if (t - (*pp)->timestamp > SOCKET_TIMEOUT) {
-                req_entry_t *old = *pp;
-                release_upstream(old->upstream_idx);
-                *pp = old->next;
-                free(old);
-            } else {
-                pp = &(*pp)->next;
-            }
+void cleanup_expired() {
+    double t=now();
+    for(int i=0;i<REQ_TABLE_SIZE;i++){
+        req_entry_t **pp=&req_table[i];
+        while(*pp){
+            if(t-(*pp)->timestamp > SOCKET_TIMEOUT){
+                req_entry_t *o=*pp;
+                release_upstream(o->upstream_idx);
+                *pp=o->next;
+                free(o);
+            } else pp=&(*pp)->next;
         }
     }
 }
 
-/* ============================================================================
- * SIGNAL HANDLER
- * ============================================================================ */
-static void sig_handler(int s) {
-    (void)s;
-    shutdown_flag = 1;
-}
+void sig_handler(int s){ shutdown_flag=1; }
 
-/* ============================================================================
- * MAIN FUNCTION
- * ============================================================================ */
-int main(int argc, char **argv) {
-    (void)argc;
-    (void)argv;
-    
-    /* Setup signal handlers */
-    signal(SIGINT, sig_handler);
-    signal(SIGTERM, sig_handler);
-    signal(SIGPIPE, SIG_IGN);
-    
-    /* ========================================================================
-     * CREATE SOCKET WITH SO_REUSEPORT FOR MULTI-CORE
-     * ===================================================================== */
-    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sock < 0) {
-        perror("socket");
-        exit(EXIT_FAILURE);
+int main() {
+    signal(SIGINT,sig_handler);
+    signal(SIGTERM,sig_handler);
+
+    sock=socket(AF_INET,SOCK_DGRAM,0);
+    fcntl(sock,F_SETFL,O_NONBLOCK);
+    int reuse=1;
+    setsockopt(sock,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse));
+
+    struct sockaddr_in a={0};
+    a.sin_family=AF_INET; a.sin_port=htons(LISTEN_PORT);
+    a.sin_addr.s_addr=INADDR_ANY;
+    bind(sock,(void*)&a,sizeof(a));
+
+    struct sockaddr_in slow={0};
+    slow.sin_family=AF_INET; slow.sin_port=htons(SLOWDNS_PORT);
+    inet_pton(AF_INET,"127.0.0.1",&slow.sin_addr);
+
+    epoll_fd=epoll_create1(0);
+    struct epoll_event ev={.events=EPOLLIN,.data.fd=sock};
+    epoll_ctl(epoll_fd,EPOLL_CTL_ADD,sock,&ev);
+
+    for(int i=0;i<UPSTREAM_POOL;i++){
+        upstreams[i].fd=socket(AF_INET,SOCK_DGRAM,0);
+        fcntl(upstreams[i].fd,F_SETFL,O_NONBLOCK);
+        struct epoll_event ue={.events=EPOLLIN,.data.fd=upstreams[i].fd};
+        epoll_ctl(epoll_fd,EPOLL_CTL_ADD,upstreams[i].fd,&ue);
     }
-    
-    /* Set non-blocking */
-    fcntl(sock, F_SETFL, O_NONBLOCK);
-    
-    /* Enable SO_REUSEPORT for multi-core processing */
-    int reuseport = 1;
-    if (setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, &reuseport, sizeof(reuseport)) < 0) {
-        fprintf(stderr, "Warning: SO_REUSEPORT not supported, continuing without multi-core\n");
-    }
-    
-    /* Enable SO_REUSEADDR */
-    int reuseaddr = 1;
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr));
-    
-    /* Increase receive buffer */
-    int rcvbuf = 16777216;  /* 16MB */
-    setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
-    setsockopt(sock, SOL_SOCKET, SO_SNDBUF, &rcvbuf, sizeof(rcvbuf));
-    
-    /* Bind to port 53 IPv4 only */
-    struct sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(LISTEN_PORT);
-    addr.sin_addr.s_addr = INADDR_ANY;
-    
-    if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        perror("bind");
-        exit(EXIT_FAILURE);
-    }
-    
-    /* Setup SlowDNS upstream address */
-    struct sockaddr_in slow = {0};
-    slow.sin_family = AF_INET;
-    slow.sin_port = htons(SLOWDNS_PORT);
-    inet_pton(AF_INET, "127.0.0.1", &slow.sin_addr);
-    
-    /* ========================================================================
-     * CREATE EPOLL INSTANCE
-     * ===================================================================== */
-    epoll_fd = epoll_create1(0);
-    if (epoll_fd < 0) {
-        perror("epoll_create1");
-        exit(EXIT_FAILURE);
-    }
-    
-    struct epoll_event ev;
-    ev.events = EPOLLIN;
-    ev.data.fd = sock;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock, &ev) < 0) {
-        perror("epoll_ctl");
-        exit(EXIT_FAILURE);
-    }
-    
-    /* Create upstream sockets */
-    for (int i = 0; i < UPSTREAM_POOL; i++) {
-        upstreams[i].fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-        if (upstreams[i].fd < 0) {
-            perror("upstream socket");
-            continue;
-        }
-        
-        fcntl(upstreams[i].fd, F_SETFL, O_NONBLOCK);
-        upstreams[i].busy = 0;
-        upstreams[i].last_used = 0;
-        
-        ev.events = EPOLLIN;
-        ev.data.fd = upstreams[i].fd;
-        epoll_ctl(epoll_fd, EPOLL_CTL_ADD, upstreams[i].fd, &ev);
-    }
-    
-    fprintf(stderr, "ELITE-X8 EDNS Proxy started on port %d (IPv4 only)\n", LISTEN_PORT);
-    
-    /* ========================================================================
-     * MAIN EVENT LOOP
-     * ===================================================================== */
+
     struct epoll_event events[MAX_EVENTS];
-    
-    while (!shutdown_flag) {
+
+    while(!shutdown_flag){
         cleanup_expired();
-        
-        int n = epoll_wait(epoll_fd, events, MAX_EVENTS, 100);
-        
-        for (int i = 0; i < n; i++) {
-            int fd = events[i].data.fd;
-            
-            if (fd == sock) {
-                /* Incoming DNS query */
+        int n=epoll_wait(epoll_fd,events,MAX_EVENTS,10);
+        for(int i=0;i<n;i++){
+            int fd=events[i].data.fd;
+            if(fd==sock){
                 unsigned char buf[BUFFER_SIZE];
-                struct sockaddr_in client;
-                socklen_t client_len = sizeof(client);
-                
-                int len = recvfrom(sock, buf, sizeof(buf), 0,
-                                  (struct sockaddr *)&client, &client_len);
-                
-                if (len > 12) { /* Minimum DNS packet size */
-                    patch_edns(buf, len, INT_EDNS);
-                    
-                    int u = get_upstream();
-                    if (u >= 0) {
-                        insert_req(u, buf, &client, client_len);
-                        sendto(upstreams[u].fd, buf, len, 0,
-                               (struct sockaddr *)&slow, sizeof(slow));
+                struct sockaddr_in c; socklen_t l=sizeof(c);
+                int len=recvfrom(sock,buf,sizeof(buf),0,(void*)&c,&l);
+                if(len>0){
+                    patch_edns(buf,len,INT_EDNS);
+                    int u=get_upstream();
+                    if(u>=0){
+                        insert_req(u,buf,&c,l);
+                        sendto(upstreams[u].fd,buf,len,0,(void*)&slow,sizeof(slow));
                     }
                 }
             } else {
-                /* Response from SlowDNS */
                 unsigned char buf[BUFFER_SIZE];
-                int len = recv(fd, buf, sizeof(buf), 0);
-                
-                if (len > 12) {
-                    uint16_t id = get_txid(buf);
-                    req_entry_t *e = find_req(id);
-                    
-                    if (e) {
-                        patch_edns(buf, len, EXT_EDNS);
-                        sendto(sock, buf, len, 0,
-                               (struct sockaddr *)&e->client_addr, e->addr_len);
+                int len=recv(fd,buf,sizeof(buf),0);
+                if(len>0){
+                    uint16_t id=get_txid(buf);
+                    req_entry_t *e=find_req(id);
+                    if(e){
+                        patch_edns(buf,len,EXT_EDNS);
+                        sendto(sock,buf,len,0,(void*)&e->client_addr,e->addr_len);
                         delete_req(e);
                     }
                 }
             }
         }
     }
-    
-    close(sock);
-    close(epoll_fd);
     return 0;
 }
 EOF
     
-    # Compile with maximum optimization flags
-    echo -ne "  ${CYAN}Compiling EDNS Proxy with -Ofast -march=native -flto...${NC}"
-    
-    gcc -Ofast -march=native -mtune=native -flto -fomit-frame-pointer \
-        -finline-functions -funroll-loops -ftree-vectorize \
-        -ffast-math -fno-signed-zeros -fno-trapping-math \
-        -pipe -s -D_FORTIFY_SOURCE=0 \
-        /tmp/edns.c -o /usr/local/bin/edns-proxy 2>/dev/null
+    echo -ne "  ${CYAN}Compiling EDNS Proxy...${NC}"
+    gcc -O3 -march=native -pipe /tmp/edns.c -o /usr/local/bin/edns-proxy 2>/dev/null
     
     if [ $? -eq 0 ]; then
         chmod +x /usr/local/bin/edns-proxy
-        echo -e "\r  ${GREEN}✓ EDNS Proxy compiled with Max Ultra Speed optimizations${NC}"
+        echo -e "\r  ${GREEN}✓ EDNS Proxy compiled successfully${NC}"
         log_message "EDNS Proxy compiled successfully"
-        
-        # Launch multiple instances for multi-core processing
-        print_info "Setting up $CPU_CORES EDNS Proxy instances for multi-core processing"
     else
         echo -e "\r  ${RED}✗ Compilation failed - installing pre-compiled${NC}"
         wget -q "$GITHUB_BASE/edns-proxy" -O /usr/local/bin/edns-proxy
@@ -826,7 +540,7 @@ EOF
 # CREATE DASHBOARD
 # ============================================================================
 create_dashboard() {
-    print_step "6"
+    print_step "5"
     print_info "Creating Management Dashboard"
     
     mkdir -p /etc/slowdns/dashboard
@@ -837,12 +551,12 @@ create_dashboard() {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ELITE-X8 SlowDNS Dashboard - Max Ultra Speed</title>
+    <title>ELITE-X8 SlowDNS Dashboard</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
         }
@@ -851,18 +565,17 @@ create_dashboard() {
             margin: 0 auto;
         }
         .header {
-            background: linear-gradient(135deg, rgba(102,126,234,0.3), rgba(118,75,162,0.3));
+            background: rgba(255,255,255,0.1);
             backdrop-filter: blur(10px);
             border-radius: 20px;
             padding: 30px;
             margin-bottom: 30px;
-            border: 1px solid rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
         }
         .header h1 {
             color: white;
             font-size: 2.5em;
             margin-bottom: 10px;
-            text-shadow: 0 0 20px rgba(102,126,234,0.5);
         }
         .header p {
             color: rgba(255,255,255,0.8);
@@ -875,11 +588,11 @@ create_dashboard() {
             margin-bottom: 30px;
         }
         .stat-card {
-            background: rgba(255,255,255,0.05);
+            background: rgba(255,255,255,0.1);
             backdrop-filter: blur(10px);
             border-radius: 15px;
             padding: 20px;
-            border: 1px solid rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
             color: white;
         }
         .stat-card h3 {
@@ -897,26 +610,20 @@ create_dashboard() {
             height: 12px;
             border-radius: 50%;
             margin-right: 8px;
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(72,187,120,0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(72,187,120,0); }
-            100% { box-shadow: 0 0 0 0 rgba(72,187,120,0); }
         }
         .status-online { background: #48bb78; }
         .status-offline { background: #f56565; }
         .controls {
-            background: rgba(255,255,255,0.05);
+            background: rgba(255,255,255,0.1);
             backdrop-filter: blur(10px);
             border-radius: 15px;
             padding: 20px;
-            border: 1px solid rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
             margin-bottom: 30px;
         }
         .button {
-            background: rgba(255,255,255,0.1);
-            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
             color: white;
             padding: 10px 20px;
             border-radius: 10px;
@@ -926,23 +633,20 @@ create_dashboard() {
             transition: all 0.3s;
         }
         .button:hover {
-            background: rgba(255,255,255,0.2);
-            transform: translateY(-2px);
+            background: rgba(255,255,255,0.3);
         }
-        .button.start { background: rgba(72, 187, 120, 0.3); }
-        .button.stop { background: rgba(245, 101, 101, 0.3); }
-        .button.restart { background: rgba(236, 201, 75, 0.3); }
+        .button.start { background: rgba(72, 187, 120, 0.5); }
+        .button.stop { background: rgba(245, 101, 101, 0.5); }
+        .button.restart { background: rgba(236, 201, 75, 0.5); }
         .logs {
             background: rgba(0,0,0,0.5);
             border-radius: 15px;
             padding: 20px;
             color: #0f0;
-            font-family: 'Courier New', monospace;
+            font-family: monospace;
             height: 300px;
             overflow-y: auto;
             border: 1px solid rgba(255,255,255,0.1);
-            white-space: pre-wrap;
-            font-size: 0.85em;
         }
         .public-key {
             background: rgba(0,0,0,0.3);
@@ -959,7 +663,7 @@ create_dashboard() {
     <div class="container">
         <div class="header">
             <h1>🚀 ELITE-X8 SlowDNS Dashboard</h1>
-            <p>Max Ultra Speed DNS Tunnel Management System</p>
+            <p>Advanced DNS Tunnel Management System</p>
         </div>
         
         <div class="stats-grid">
@@ -980,14 +684,6 @@ create_dashboard() {
             <div class="stat-card">
                 <h3>ACTIVE CONNECTIONS</h3>
                 <div class="value" id="connections">0</div>
-            </div>
-            <div class="stat-card">
-                <h3>CPU CORES</h3>
-                <div class="value" id="cpuCores">Loading...</div>
-            </div>
-            <div class="stat-card">
-                <h3>BBR STATUS</h3>
-                <div class="value" id="bbrStatus">Loading...</div>
             </div>
         </div>
         
@@ -1016,9 +712,7 @@ create_dashboard() {
                 .then(response => response.json())
                 .then(data => {
                     document.getElementById('connections').textContent = data.connections || 0;
-                    document.getElementById('cpuCores').textContent = data.cpuCores || 'N/A';
-                    document.getElementById('bbrStatus').textContent = data.bbrStatus || 'N/A';
-                    document.getElementById('logs').textContent = data.logs || 'No logs available';
+                    document.getElementById('logs').innerHTML = data.logs || 'No logs available';
                     document.getElementById('publicKey').textContent = data.publicKey || 'Not available';
                 })
                 .catch(err => console.error('Error:', err));
@@ -1076,17 +770,6 @@ class SlowDNSAPI(http.server.BaseHTTPRequestHandler):
             except:
                 pass
             
-            cpu_cores = os.cpu_count() or 'N/A'
-            
-            bbr_status = 'Not Active'
-            try:
-                result = subprocess.run(['sysctl', 'net.ipv4.tcp_congestion_control'], 
-                                      capture_output=True, text=True)
-                if 'bbr' in result.stdout.lower():
-                    bbr_status = 'Active ✓'
-            except:
-                pass
-            
             logs = "No logs available"
             try:
                 result = subprocess.run(['journalctl', '-u', 'server-sldns', '--no-pager', '-n', '20'], 
@@ -1105,8 +788,6 @@ class SlowDNSAPI(http.server.BaseHTTPRequestHandler):
             
             status = {
                 'connections': connections,
-                'cpuCores': cpu_cores,
-                'bbrStatus': bbr_status,
                 'logs': logs,
                 'publicKey': public_key,
                 'slowdns_status': 'running' if os.system('systemctl is-active --quiet server-sldns') == 0 else 'stopped',
@@ -1160,7 +841,6 @@ Type=simple
 ExecStart=/usr/bin/python3 /usr/local/bin/slowdns-api
 Restart=always
 User=root
-Nice=-10
 
 [Install]
 WantedBy=multi-user.target
@@ -1171,70 +851,51 @@ EOF
 }
 
 # ============================================================================
-# CREATE HIGH-PRIORITY SYSTEMD SERVICES
+# CREATE SERVICES - SIMPLE ZINAZOFANYA KAZI
 # ============================================================================
 create_services() {
-    print_step "7"
-    print_info "Creating High-Priority Systemd Services"
+    print_step "6"
+    print_info "Creating System Services"
     
-    # SlowDNS Service with MAX priority and file limits
+    # SlowDNS Service
     cat > /etc/systemd/system/server-sldns.service << EOF
 [Unit]
-Description=ELITE-X8 SlowDNS Server (Max Ultra Speed)
+Description=ELITE-X8 SlowDNS Server
 After=network.target sshd.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/etc/slowdns/dnstt-server -udp :$SLOWDNS_PORT -mtu 1400 -privkey-file /etc/slowdns/server.key $NAMESERVER 127.0.0.1:$SSHD_PORT
+ExecStart=/etc/slowdns/dnstt-server -udp :$SLOWDNS_PORT -mtu 1200 -privkey-file /etc/slowdns/server.key $NAMESERVER 127.0.0.1:$SSHD_PORT
 Restart=always
 RestartSec=3
 User=root
-Nice=-20
-LimitNOFILE=1000000
-LimitNPROC=infinity
-LimitCORE=infinity
-LimitMEMLOCK=infinity
-CPUAffinity=0-$(($(nproc)-1))
-IOSchedulingClass=realtime
-IOSchedulingPriority=0
-OOMScoreAdjust=-1000
-MemoryDenyWriteExecute=false
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
 EOF
     
-    # EDNS Proxy Service - Multiple instances for multi-core
-    CPU_CORES=$(nproc)
-    
+    # EDNS Proxy Service
     cat > /etc/systemd/system/edns-proxy.service << EOF
 [Unit]
-Description=ELITE-X8 EDNS Proxy (Max Ultra Speed - Multi-Core)
+Description=EDNS Proxy for SlowDNS
 After=server-sldns.service
 Requires=server-sldns.service
 
 [Service]
-Type=forking
+Type=simple
 ExecStart=/usr/local/bin/edns-proxy
 Restart=always
 RestartSec=3
 User=root
-Nice=-20
-LimitNOFILE=1000000
-LimitNPROC=infinity
-LimitCORE=infinity
-LimitMEMLOCK=infinity
-CPUAffinity=0-$(($CPU_CORES-1))
-IOSchedulingClass=realtime
-IOSchedulingPriority=0
-OOMScoreAdjust=-1000
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
 EOF
     
-    print_success "High-priority service files created"
+    print_success "Service files created"
     print_step_end
 }
 
@@ -1242,14 +903,14 @@ EOF
 # CONFIGURE FIREWALL
 # ============================================================================
 configure_firewall() {
-    print_step "8"
-    print_info "Configuring Firewall Rules (IPv4 Only)"
+    print_step "7"
+    print_info "Configuring Firewall Rules"
     
     # Stop conflicting services
     systemctl stop systemd-resolved 2>/dev/null
     fuser -k 53/udp 2>/dev/null
     
-    # Configure iptables - IPv4 only
+    # Configure iptables
     iptables -F
     iptables -X
     iptables -t nat -F
@@ -1267,13 +928,7 @@ configure_firewall() {
     iptables -A INPUT -p tcp --dport $DASHBOARD_PORT -j ACCEPT
     iptables -A INPUT -p icmp -j ACCEPT
     
-    # Block all IPv6 traffic
-    ip6tables -F 2>/dev/null
-    ip6tables -P INPUT DROP 2>/dev/null
-    ip6tables -P FORWARD DROP 2>/dev/null
-    ip6tables -P OUTPUT DROP 2>/dev/null
-    
-    print_success "Firewall configured (IPv4 only)"
+    print_success "Firewall configured"
     print_step_end
 }
 
@@ -1281,8 +936,8 @@ configure_firewall() {
 # START SERVICES
 # ============================================================================
 start_services() {
-    print_step "9"
-    print_info "Starting All Services with Max Priority"
+    print_step "8"
+    print_info "Starting All Services"
     
     systemctl daemon-reload
     
@@ -1292,10 +947,10 @@ start_services() {
     sleep 2
     
     if systemctl is-active --quiet server-sldns; then
-        print_success "SlowDNS service started (Priority: -20, LimitNOFILE: 1M)"
+        print_success "SlowDNS service started"
     else
         print_warning "Starting SlowDNS in background mode"
-        /etc/slowdns/dnstt-server -udp :$SLOWDNS_PORT -mtu 1400 -privkey-file /etc/slowdns/server.key $NAMESERVER 127.0.0.1:$SSHD_PORT &
+        /etc/slowdns/dnstt-server -udp :$SLOWDNS_PORT -mtu 1200 -privkey-file /etc/slowdns/server.key $NAMESERVER 127.0.0.1:$SSHD_PORT &
     fi
     
     # Start EDNS Proxy
@@ -1304,7 +959,7 @@ start_services() {
     sleep 2
     
     if systemctl is-active --quiet edns-proxy; then
-        print_success "EDNS Proxy service started (Multi-Core, Priority: -20)"
+        print_success "EDNS Proxy service started"
     else
         print_warning "Starting EDNS Proxy in background mode"
         /usr/local/bin/edns-proxy &
@@ -1329,19 +984,17 @@ start_services() {
 # SHOW COMPLETION SUMMARY
 # ============================================================================
 show_summary() {
-    print_header "🎉 INSTALLATION COMPLETE - MAX ULTRA SPEED EDITION"
+    print_header "🎉 INSTALLATION COMPLETE"
     
     echo -e "${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
     echo -e "${CYAN}│${NC} ${WHITE}${BOLD}ELITE-X8 SLOWDNS SERVER INFORMATION${NC}                 ${CYAN}│${NC}"
     echo -e "${CYAN}├──────────────────────────────────────────────────────────┤${NC}"
     echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Server IP:      ${WHITE}$SERVER_IP${NC}"
     echo -e "${CYAN}│${NC} ${YELLOW}●${NC} SSH Port:       ${WHITE}$SSHD_PORT${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} SlowDNS Port:   ${WHITE}$SLOWDNS_PORT${NC} (MTU: 1400)"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} EDNS Port:      ${WHITE}53${NC} (Multi-Core)"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} SlowDNS Port:   ${WHITE}$SLOWDNS_PORT${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} EDNS Port:      ${WHITE}53${NC}"
     echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Dashboard:      ${WHITE}http://$SERVER_IP:$DASHBOARD_PORT${NC}"
     echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Nameserver:     ${WHITE}$NAMESERVER${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} CPU Cores:      ${WHITE}$(nproc)${NC} (All utilized)"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} BBR:            ${WHITE}$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo 'N/A')${NC}"
     echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
     
     # Show public key
@@ -1361,12 +1014,10 @@ show_summary() {
     echo -e "${CYAN}│${NC} ${GREEN}systemctl status slowdns-dashboard${NC}"
     echo -e "${CYAN}│${NC} ${GREEN}journalctl -u server-sldns -f${NC}"
     echo -e "${CYAN}│${NC} ${GREEN}ss -ulpn | grep ':53\|:5300'${NC}"
-    echo -e "${CYAN}│${NC} ${GREEN}sysctl net.ipv4.tcp_congestion_control${NC}"
-    echo -e "${CYAN}│${NC} ${GREEN}sysctl net.core.rmem_max${NC}"
     echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
     
     echo -e "\n${PURPLE}╔══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${NC}    ${WHITE}🎯 ELITE-X8 SLOWDNS MAX ULTRA SPEED - INSTALLED!${NC}         ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC}    ${WHITE}🎯 ELITE-X8 SLOWDNS INSTALLED SUCCESSFULLY!${NC}              ${PURPLE}║${NC}"
     echo -e "${PURPLE}║${NC}    ${WHITE}⚡ Dashboard: http://$SERVER_IP:$DASHBOARD_PORT${NC}             ${PURPLE}║${NC}"
     echo -e "${PURPLE}║${NC}    ${WHITE}📁 Repository: https://github.com/ELITE-X8/setup.sh${NC}       ${PURPLE}║${NC}"
     echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════════╝${NC}"
@@ -1390,11 +1041,10 @@ main() {
     # Get server IP
     SERVER_IP=$(curl -s --connect-timeout 5 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
     
-    disable_ipv6
-    optimize_kernel
     check_requirements
     download_files
     configure_ssh
+    optimize_kernel
     compile_edns
     create_dashboard
     create_services
@@ -1409,7 +1059,7 @@ main() {
 trap 'echo -e "\n${RED}✗ Installation interrupted!${NC}"; log_message "Installation interrupted"; exit 1' INT
 
 # Initialize log
-echo "=== SLOWDNS MAX ULTRA SPEED INSTALLATION STARTED $(date) ===" > "$LOG_FILE"
+echo "=== SLOWDNS INSTALLATION STARTED $(date) ===" > "$LOG_FILE"
 
 if main; then
     echo "=== INSTALLATION COMPLETED SUCCESSFULLY $(date) ===" >> "$LOG_FILE"
