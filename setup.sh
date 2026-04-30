@@ -1,30 +1,15 @@
 #!/bin/bash
+# ╔══════════════════════════════════════════════════════════════╗
+#  ELITE-X DNSTT SCRIPT v3.3.1 - FALCON ENHANCED (FULL)
+#  + C EDNS Proxy (Multi-core, IPv4) + IPv6 Disabled
+#  + BBR + 20MB Buffers + High Backlog + Nice -20
+#  + Bandwidth GB Limits + 3Proxy Speed + Auto-Delete
+# ╚══════════════════════════════════════════════════════════════╝
+set -euo pipefail
 
-# ============================================================================
-#                     SLOWDNS MODERN INSTALLATION SCRIPT
-#                          ELITE-X8 EDITION V2
-# ============================================================================
-
-# Ensure running as root
-if [ "$EUID" -ne 0 ]; then
-    echo -e "\033[0;31m[✗]\033[0m Please run this script as root"
-    exit 1
-fi
-
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
-SSHD_PORT=22
-SLOWDNS_PORT=5300
-DASHBOARD_PORT=8080
-TERMINAL_PANEL_PORT=9090
-USERS_DIR="/etc/slowdns/users"
-GITHUB_BASE="https://raw.githubusercontent.com/ELITE-X8/setup.sh/main"
-LOG_FILE="/var/log/slowdns-install.log"
-
-# ============================================================================
-# MODERN COLORS & DESIGN
-# ============================================================================
+# ═══════════════════════════════════════════════════════════════
+# VARIABLES
+# ═══════════════════════════════════════════════════════════════
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -33,1631 +18,1455 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 WHITE='\033[1;37m'
 BOLD='\033[1m'
+ORANGE='\033[0;33m'
+LIGHT_RED='\033[1;31m'
+LIGHT_GREEN='\033[1;32m'
+GRAY='\033[0;90m'
 NC='\033[0m'
 
-# ============================================================================
-# LOGGING FUNCTION
-# ============================================================================
-log_message() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
-}
+STATIC_PRIVATE_KEY="7f207e92ab7cb365aad1966b62d2cfbd3f450fe8e523a38ffc7ecfbcec315693"
+STATIC_PUBLIC_KEY="40aa057fcb2574e1e9223ea46457f9fdf9d60a2a1c23da87602202d93b41aa04"
+ACTIVATION_KEY="ELITE"
+TIMEZONE="Africa/Dar_es_Salaam"
 
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
-show_progress() {
-    local pid=$1
-    local delay=0.1
-    local spinstr='|/-\'
-    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
-        local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
-        local spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b\b\b"
-    done
-    printf "    \b\b\b\b"
-}
+USER_DB="/etc/elite-x/users"
+USAGE_DB="/etc/elite-x/data_usage"
+BANDWIDTH_DIR="/etc/elite-x/bandwidth"
+PIDTRACK_DIR="$BANDWIDTH_DIR/pidtrack"
+BANNED_DB="/etc/elite-x/banned"
+CONN_DB="/etc/elite-x/connections"
+DELETED_DB="/etc/elite-x/deleted"
+AUTOBAN_FLAG="/etc/elite-x/autoban_enabled"
+THREEPROXY_DIR="/etc/elite-x/3proxy"
+THREEPROXY_BIN="/usr/local/bin/3proxy"
+THREEPROXY_SERVICE="/etc/systemd/system/3proxy-elite.service"
+EDNS_C_SOURCE="/usr/local/bin/dnstt-edns-proxy.c"
+EDNS_C_BIN="/usr/local/bin/dnstt-edns-proxy"
 
-print_step() {
-    echo -e "\n${BLUE}┌─${NC} ${CYAN}${BOLD}STEP $1${NC}"
-    echo -e "${BLUE}│${NC}"
-}
-
-print_step_end() {
-    echo -e "${BLUE}└─${NC} ${GREEN}✓${NC} Completed"
-}
-
-print_banner() {
+# ═══════════════════════════════════════════════════════════════
+# FUNCTIONS
+# ═══════════════════════════════════════════════════════════════
+show_banner() {
     clear
-    echo -e "${PURPLE}╔══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${NC}${CYAN}          🚀 ELITE-X8 SLOWDNS MODERN INSTALLATION SCRIPT${NC}       ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC}${WHITE}            Fast & Professional Configuration V2${NC}              ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC}${YELLOW}                Optimized for Maximum Performance${NC}              ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC}${GREEN}               Panel Dashboard + User Management${NC}               ${PURPLE}║${NC}"
-    echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${PURPLE}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${PURPLE}║${YELLOW}${BOLD}           ELITE-X SLOWDNS v3.3.1 FALCON ENHANCED             ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${GREEN}${BOLD}    C Proxy • IPv6 Off • BBR • 20MB Buff • Nice -20 • GB Lim  ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${CYAN}${BOLD}              TURBO BOOST EDITION - FULL OPTIMIZED            ${PURPLE}║${NC}"
+    echo -e "${PURPLE}╚═══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
 
-print_header() {
-    echo -e "\n${PURPLE}══════════════════════════════════════════════════════════${NC}"
-    echo -e "${CYAN}${BOLD}$1${NC}"
-    echo -e "${PURPLE}══════════════════════════════════════════════════════════${NC}"
-}
+print_color() { echo -e "${2}${1}${NC}"; }
+set_timezone() { timedatectl set-timezone $TIMEZONE 2>/dev/null || ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime 2>/dev/null || true; }
 
-print_success() {
-    echo -e "  ${GREEN}${BOLD}✓${NC} ${GREEN}$1${NC}"
-}
+# ═══════════════════════════════════════════════════════════════
+# KERNEL OPTIMIZATION + DISABLE IPv6
+# ═══════════════════════════════════════════════════════════════
+optimize_kernel_and_disable_ipv6() {
+    echo -e "${YELLOW}⚙️  Disabling IPv6 & Applying Kernel Optimizations...${NC}"
 
-print_error() {
-    echo -e "  ${RED}${BOLD}✗${NC} ${RED}$1${NC}"
-}
+    # Disable IPv6 via sysctl
+    cat >> /etc/sysctl.conf <<'SYSCTL'
 
-print_warning() {
-    echo -e "  ${YELLOW}${BOLD}!${NC} ${YELLOW}$1${NC}"
-}
-
-print_info() {
-    echo -e "  ${CYAN}${BOLD}ℹ${NC} ${CYAN}$1${NC}"
-}
-
-# ============================================================================
-# SYSTEM OPTIMIZATION - UDP Buffers & IPv6 Disable
-# ============================================================================
-optimize_system() {
-    print_step "0"
-    print_info "Applying System Optimizations"
-    
-    # Maximize UDP buffers to 20MB
-    cat > /etc/sysctl.d/99-slowdns-optimize.conf << EOF
-# ELITE-X8 SLOWDNS OPTIMIZATION
-# Maximize UDP buffers (20MB max)
-net.core.rmem_max = 20971520
-net.core.wmem_max = 20971520
-net.core.rmem_default = 20971520
-net.core.wmem_default = 20971520
-net.ipv4.udp_mem = 20971520 20971520 20971520
-net.ipv4.udp_rmem_min = 20971520
-net.ipv4.udp_wmem_min = 20971520
-
-# TCP optimization for SlowDNS
-net.core.netdev_max_backlog = 5000
-net.core.somaxconn = 65535
-net.ipv4.tcp_max_syn_backlog = 8192
-net.ipv4.tcp_tw_reuse = 1
-net.ipv4.tcp_fin_timeout = 15
-net.ipv4.tcp_keepalive_time = 300
-net.ipv4.tcp_keepalive_probes = 5
-net.ipv4.tcp_keepalive_intvl = 15
-
-# Disable IPv6 completely
+# === ELITE-X: Disable IPv6 ===
 net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv6.conf.default.disable_ipv6 = 1
 net.ipv6.conf.lo.disable_ipv6 = 1
-net.ipv6.conf.eth0.disable_ipv6 = 1
-EOF
-    
-    sysctl -p /etc/sysctl.d/99-slowdns-optimize.conf >/dev/null 2>&1
-    
-    # Disable IPv6 via sysctl.conf
-    if ! grep -q "net.ipv6.conf.all.disable_ipv6" /etc/sysctl.conf; then
-        echo "net.ipv6.conf.all.disable_ipv6 = 1" >> /etc/sysctl.conf
-        echo "net.ipv6.conf.default.disable_ipv6 = 1" >> /etc/sysctl.conf
-        echo "net.ipv6.conf.lo.disable_ipv6 = 1" >> /etc/sysctl.conf
+
+# === ELITE-X: BBR Congestion Control ===
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+
+# === ELITE-X: UDP Buffers 20MB ===
+net.core.rmem_max = 20971520
+net.core.wmem_max = 20971520
+net.ipv4.udp_rmem_min = 20971520
+net.ipv4.udp_wmem_min = 20971520
+
+# === ELITE-X: High Backlog ===
+net.core.netdev_max_backlog = 262144
+net.core.somaxconn = 65535
+
+# === ELITE-X: TCP Optimizations ===
+net.ipv4.tcp_rmem = 4096 87380 20971520
+net.ipv4.tcp_wmem = 4096 65536 20971520
+net.ipv4.tcp_max_syn_backlog = 262144
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_notsent_lowat = 16384
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_fin_timeout = 15
+
+SYSCTL
+
+    sysctl -p >/dev/null 2>&1
+
+    # Disable IPv6 in GRUB
+    if ! grep -q "ipv6.disable=1" /etc/default/grub 2>/dev/null; then
+        sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*/& ipv6.disable=1/' /etc/default/grub 2>/dev/null || true
+        update-grub 2>/dev/null || true
     fi
-    
-    # Disable IPv6 in GRUB for boot-time
-    if [ -f /etc/default/grub ]; then
-        if ! grep -q "ipv6.disable=1" /etc/default/grub; then
-            sed -i 's/GRUB_CMDLINE_LINUX="\(.*\)"/GRUB_CMDLINE_LINUX="\1 ipv6.disable=1"/' /etc/default/grub
-            update-grub 2>/dev/null || grub2-mkconfig -o /boot/grub2/grub.cfg 2>/dev/null
-        fi
-    fi
-    
-    # Disable IPv6 services
-    systemctl disable --now systemd-resolved 2>/dev/null
-    systemctl stop systemd-resolved 2>/dev/null
-    
-    # Remove IPv6 from hosts
-    sed -i '/^#.*ip6/d; s/^::1/#::1/' /etc/hosts 2>/dev/null
-    
-    # Set IPv4 preference
-    if [ -f /etc/gai.conf ]; then
-        sed -i 's/#precedence ::ffff:0:0\/96  100/precedence ::ffff:0:0\/96  100/' /etc/gai.conf 2>/dev/null
-    fi
-    
-    print_success "System optimized (20MB UDP buffers, IPv6 disabled)"
-    print_step_end
+
+    # Disable IPv6 systemd-networkd
+    mkdir -p /etc/systemd/network
+    cat > /etc/systemd/network/10-no-ipv6.network <<NIPV6
+[Network]
+IPv6AcceptRA=false
+LinkLocalAddressing=no
+NIPV6
+    systemctl restart systemd-networkd 2>/dev/null || true
+
+    echo -e "${GREEN}✅ Kernel optimized & IPv6 disabled${NC}"
 }
 
-# ============================================================================
-# CHECK SYSTEM REQUIREMENTS
-# ============================================================================
-check_requirements() {
-    print_header "🔍 CHECKING SYSTEM REQUIREMENTS"
-    
-    # Check OS
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        OS=$NAME
-        VER=$VERSION_ID
-        print_success "OS: $OS $VER"
-    else
-        print_error "Cannot detect OS"
-        exit 1
-    fi
-    
-    # Check architecture
-    ARCH=$(uname -m)
-    print_success "Architecture: $ARCH"
-    
-    # Check memory
-    MEM=$(free -m | awk '/^Mem:/{print $2}')
-    print_success "Memory: ${MEM}MB"
-    
-    # Check disk space
-    DISK=$(df -h / | awk 'NR==2{print $4}')
-    print_success "Available Disk: $DISK"
-    
-    # Check internet connection
-    if ping -c 1 8.8.8.8 >/dev/null 2>&1; then
-        print_success "Internet: Connected"
-    else
-        print_error "No internet connection"
-        exit 1
-    fi
-    
-    # Check CPU cores for multi-core optimization
-    CPU_CORES=$(nproc)
-    print_success "CPU Cores: $CPU_CORES"
-}
+# ═══════════════════════════════════════════════════════════════
+# C EDNS PROXY (Multi-core, IPv4 Only, SO_REUSEPORT)
+# ═══════════════════════════════════════════════════════════════
+create_c_edns_proxy() {
+    echo -e "${YELLOW}🔧 Creating High-Performance C EDNS Proxy...${NC}"
 
-# ============================================================================
-# DOWNLOAD FILES FROM GITHUB
-# ============================================================================
-download_files() {
-    print_step "1"
-    print_info "Downloading files from ELITE-X8 Repository"
-    
-    mkdir -p /etc/slowdns
-    cd /etc/slowdns
-    
-    # Download dnstt-server
-    echo -ne "  ${CYAN}Downloading dnstt-server binary...${NC}"
-    if wget -q "$GITHUB_BASE/dnstt-server" -O dnstt-server 2>/dev/null; then
-        chmod +x dnstt-server
-        echo -e "\r  ${GREEN}✓ dnstt-server downloaded${NC}"
-        log_message "dnstt-server downloaded successfully"
-    else
-        echo -e "\r  ${RED}✗ Failed to download dnstt-server${NC}"
-        log_message "ERROR: Failed to download dnstt-server"
-        exit 1
-    fi
-    
-    # Download server.key
-    echo -ne "  ${CYAN}Downloading server.key...${NC}"
-    if wget -q "$GITHUB_BASE/server.key" -O server.key 2>/dev/null; then
-        chmod 600 server.key
-        echo -e "\r  ${GREEN}✓ server.key downloaded${NC}"
-        log_message "server.key downloaded successfully"
-    else
-        echo -e "\r  ${RED}✗ Failed to download server.key${NC}"
-        log_message "ERROR: Failed to download server.key"
-        exit 1
-    fi
-    
-    # Download server.pub
-    echo -ne "  ${CYAN}Downloading server.pub...${NC}"
-    if wget -q "$GITHUB_BASE/server.pub" -O server.pub 2>/dev/null; then
-        chmod 644 server.pub
-        echo -e "\r  ${GREEN}✓ server.pub downloaded${NC}"
-        log_message "server.pub downloaded successfully"
-    else
-        echo -e "\r  ${RED}✗ Failed to download server.pub${NC}"
-        log_message "ERROR: Failed to download server.pub"
-        exit 1
-    fi
-    
-    print_success "All files downloaded from repository"
-    print_step_end
-}
-
-# ============================================================================
-# CONFIGURE SSH
-# ============================================================================
-configure_ssh() {
-    print_step "2"
-    print_info "Configuring OpenSSH on port $SSHD_PORT"
-    
-    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup 2>/dev/null
-    
-    # Configure SSH with IPv4 only
-    cat > /etc/ssh/sshd_config << EOF
-# ELITE-X8 SLOWDNS SSH CONFIGURATION
-AddressFamily inet
-Port $SSHD_PORT
-Protocol 2
-PermitRootLogin yes
-PubkeyAuthentication yes
-PasswordAuthentication yes
-PermitEmptyPasswords no
-ChallengeResponseAuthentication no
-UsePAM yes
-X11Forwarding no
-PrintMotd no
-PrintLastLog yes
-TCPKeepAlive yes
-ClientAliveInterval 60
-ClientAliveCountMax 3
-AllowTcpForwarding yes
-GatewayPorts yes
-Compression delayed
-Subsystem sftp /usr/lib/openssh/sftp-server
-MaxSessions 100
-MaxStartups 100:30:200
-LoginGraceTime 30
-UseDNS no
-EOF
-    
-    systemctl restart sshd 2>/dev/null
-    sleep 2
-    
-    if systemctl is-active --quiet sshd; then
-        print_success "SSH configured on port $SSHD_PORT (IPv4 only)"
-    else
-        print_error "SSH configuration failed"
-        log_message "ERROR: SSH restart failed"
-    fi
-    print_step_end
-}
-
-# ============================================================================
-# COMPILE EDNS PROXY (with SO_REUSEPORT & IPv4 only)
-# ============================================================================
-compile_edns() {
-    print_step "3"
-    print_info "Compiling High-Performance EDNS Proxy (Multi-core + IPv4 only)"
-    
-    # Install compiler if needed
-    if ! command -v gcc &>/dev/null; then
-        print_info "Installing build tools..."
-        apt-get update -qq > /dev/null 2>&1
-        apt-get install -y -qq gcc make > /dev/null 2>&1
-    fi
-    
-    cat > /tmp/edns.c << 'EOF'
+    cat > "$EDNS_C_SOURCE" <<'CEOF'
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <fcntl.h>
 #include <errno.h>
-#include <signal.h>
-#include <time.h>
-#include <stdint.h>
-#include <arpa/inet.h>
 #include <sys/socket.h>
-#include <sys/epoll.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
+#include <pthread.h>
+#include <signal.h>
 
 #define LISTEN_PORT 53
-#define SLOWDNS_PORT 5300
+#define BACKEND_PORT 5300
+#define BACKEND_IP "127.0.0.1"
+#define MAX_WORKERS 4
 #define BUFFER_SIZE 4096
-#define UPSTREAM_POOL 32
-#define SOCKET_TIMEOUT 1.0
-#define MAX_EVENTS 4096
-#define REQ_TABLE_SIZE 65536
-#define EXT_EDNS 512
-#define INT_EDNS 1500
-#define NUM_THREADS 4  // Multi-core processing
+#define EDNS_OPT 41
+#define TARGET_MTU 1800
 
-typedef struct {
-    int fd;
-    int busy;
-    time_t last_used;
-} upstream_t;
+static volatile int running = 1;
 
-typedef struct req_entry {
-    uint16_t req_id;
-    int upstream_idx;
-    double timestamp;
-    struct sockaddr_in client_addr;
-    socklen_t addr_len;
-    struct req_entry *next;
-} req_entry_t;
-
-static upstream_t upstreams[UPSTREAM_POOL];
-static req_entry_t *req_table[REQ_TABLE_SIZE];
-static int sock, epoll_fd;
-static volatile sig_atomic_t shutdown_flag = 0;
-
-double now() {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec + ts.tv_nsec / 1e9;
+static void signal_handler(int sig) {
+    (void)sig;
+    running = 0;
 }
 
-uint16_t get_txid(unsigned char *b) {
-    return ((uint16_t)b[0] << 8) | b[1];
-}
-
-uint32_t req_hash(uint16_t id) {
-    return id & (REQ_TABLE_SIZE - 1);
-}
-
-int patch_edns(unsigned char *buf, int len, int size) {
-    if (len < 12) return len;
-    int off = 12;
-    int qd = (buf[4] << 8) | buf[5];
-    for (int i=0;i<qd;i++) {
-        while (buf[off]) off++;
-        off += 5;
+static unsigned char *skip_name(unsigned char *ptr, unsigned char *end) {
+    while (ptr < end) {
+        if (*ptr == 0) return ptr + 1;
+        if ((*ptr & 0xC0) == 0xC0) return ptr + 2;
+        ptr += *ptr + 1;
     }
-    int ar = (buf[10] << 8) | buf[11];
-    for (int i=0;i<ar;i++) {
-        if (buf[off]==0 && off+4<len && ((buf[off+1]<<8)|buf[off+2])==41) {
-            buf[off+3]=size>>8;
-            buf[off+4]=size&255;
+    return ptr;
+}
+
+static int modify_edns(unsigned char *buf, int len, int max_size) {
+    if (len < 12) return len;
+    unsigned char *ptr = buf + 12;
+    unsigned char *end = buf + len;
+    int i;
+
+    unsigned short qdcount = (buf[4] << 8) | buf[5];
+    unsigned short ancount = (buf[6] << 8) | buf[7];
+    unsigned short nscount = (buf[8] << 8) | buf[9];
+    unsigned short arcount = (buf[10] << 8) | buf[11];
+
+    for (i = 0; i < qdcount && ptr < end; i++) {
+        ptr = skip_name(ptr, end);
+        if (ptr + 4 > end) return len;
+        ptr += 4;
+    }
+
+    for (i = 0; i < (ancount + nscount) && ptr < end; i++) {
+        ptr = skip_name(ptr, end);
+        if (ptr + 10 > end) return len;
+        unsigned short rdlength = (ptr[8] << 8) | ptr[9];
+        ptr += 10 + rdlength;
+    }
+
+    for (i = 0; i < arcount && ptr < end; i++) {
+        ptr = skip_name(ptr, end);
+        if (ptr + 10 > end) return len;
+        unsigned short rtype = (ptr[0] << 8) | ptr[1];
+        if (rtype == EDNS_OPT) {
+            ptr[2] = (max_size >> 8) & 0xFF;
+            ptr[3] = max_size & 0xFF;
             return len;
         }
-        off++;
+        unsigned short rdlength = (ptr[8] << 8) | ptr[9];
+        ptr += 10 + rdlength;
     }
     return len;
 }
 
-int get_upstream() {
-    time_t t = time(NULL);
-    for (int i=0;i<UPSTREAM_POOL;i++) {
-        if (upstreams[i].busy && t - upstreams[i].last_used > 2)
-            upstreams[i].busy = 0;
-        if (!upstreams[i].busy) {
-            upstreams[i].busy = 1;
-            upstreams[i].last_used = t;
-            return i;
-        }
+typedef struct {
+    int listen_fd;
+    struct sockaddr_in client_addr;
+    socklen_t client_len;
+    unsigned char buffer[BUFFER_SIZE];
+    int len;
+} worker_data_t;
+
+static void *worker_thread(void *arg) {
+    worker_data_t *data = (worker_data_t *)arg;
+    int backend_fd;
+    struct sockaddr_in backend_addr;
+    struct timeval tv = {5, 0};
+    unsigned char rbuf[BUFFER_SIZE];
+    int rlen;
+
+    backend_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (backend_fd < 0) {
+        free(data);
+        return NULL;
     }
-    return -1;
-}
+    setsockopt(backend_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-void release_upstream(int i) {
-    if (i>=0 && i<UPSTREAM_POOL) upstreams[i].busy = 0;
-}
+    memset(&backend_addr, 0, sizeof(backend_addr));
+    backend_addr.sin_family = AF_INET;
+    backend_addr.sin_port = htons(BACKEND_PORT);
+    inet_pton(AF_INET, BACKEND_IP, &backend_addr.sin_addr);
 
-void insert_req(int uidx, unsigned char *buf, struct sockaddr_in *c, socklen_t l) {
-    req_entry_t *e = calloc(1,sizeof(*e));
-    e->upstream_idx = uidx;
-    e->req_id = get_txid(buf);
-    e->timestamp = now();
-    e->client_addr = *c;
-    e->addr_len = l;
-    uint32_t h = req_hash(e->req_id);
-    e->next = req_table[h];
-    req_table[h] = e;
-}
+    int mlen = modify_edns(data->buffer, data->len, TARGET_MTU);
+    sendto(backend_fd, data->buffer, mlen, 0,
+           (struct sockaddr *)&backend_addr, sizeof(backend_addr));
 
-req_entry_t *find_req(uint16_t id) {
-    uint32_t h = req_hash(id);
-    for (req_entry_t *e=req_table[h]; e; e=e->next)
-        if (e->req_id == id) return e;
+    socklen_t blen = sizeof(backend_addr);
+    rlen = recvfrom(backend_fd, rbuf, sizeof(rbuf), 0,
+                    (struct sockaddr *)&backend_addr, &blen);
+
+    if (rlen > 0) {
+        rlen = modify_edns(rbuf, rlen, 512);
+        sendto(data->listen_fd, rbuf, rlen, 0,
+               (struct sockaddr *)&data->client_addr, data->client_len);
+    }
+
+    close(backend_fd);
+    free(data);
     return NULL;
 }
 
-void delete_req(req_entry_t *e) {
-    release_upstream(e->upstream_idx);
-    uint32_t h = req_hash(e->req_id);
-    req_entry_t **pp=&req_table[h];
-    while(*pp){
-        if(*pp==e){ *pp=e->next; free(e); return; }
-        pp=&(*pp)->next;
-    }
-}
+int main(void) {
+    int listen_fd;
+    struct sockaddr_in listen_addr;
+    int optval = 1;
 
-void cleanup_expired() {
-    double t=now();
-    for(int i=0;i<REQ_TABLE_SIZE;i++){
-        req_entry_t **pp=&req_table[i];
-        while(*pp){
-            if(t-(*pp)->timestamp > SOCKET_TIMEOUT){
-                req_entry_t *o=*pp;
-                release_upstream(o->upstream_idx);
-                *pp=o->next;
-                free(o);
-            } else pp=&(*pp)->next;
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
+
+    listen_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (listen_fd < 0) {
+        perror("socket");
+        return 1;
+    }
+
+    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
+    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+
+    memset(&listen_addr, 0, sizeof(listen_addr));
+    listen_addr.sin_family = AF_INET;
+    listen_addr.sin_addr.s_addr = INADDR_ANY;
+    listen_addr.sin_port = htons(LISTEN_PORT);
+
+    if (bind(listen_fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0) {
+        perror("bind");
+        close(listen_fd);
+        return 1;
+    }
+
+    fprintf(stderr, "C EDNS Proxy started on port %d (IPv4 only, %d workers)\n",
+            LISTEN_PORT, MAX_WORKERS);
+
+    while (running) {
+        worker_data_t *data = malloc(sizeof(worker_data_t));
+        if (!data) continue;
+
+        data->listen_fd = listen_fd;
+        data->client_len = sizeof(data->client_addr);
+        data->len = recvfrom(listen_fd, data->buffer, sizeof(data->buffer), 0,
+                             (struct sockaddr *)&data->client_addr, &data->client_len);
+        if (data->len <= 0) {
+            free(data);
+            continue;
         }
-    }
-}
 
-void sig_handler(int s){ shutdown_flag=1; }
-
-int main() {
-    signal(SIGINT,sig_handler);
-    signal(SIGTERM,sig_handler);
-
-    // IPv4 only socket with SO_REUSEPORT for multi-core
-    sock=socket(AF_INET,SOCK_DGRAM,0);
-    fcntl(sock,F_SETFL,O_NONBLOCK);
-    int reuse=1;
-    setsockopt(sock,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse));
-    setsockopt(sock,SOL_SOCKET,SO_REUSEPORT,&reuse,sizeof(reuse));
-
-    struct sockaddr_in a={0};
-    a.sin_family=AF_INET; a.sin_port=htons(LISTEN_PORT);
-    a.sin_addr.s_addr=INADDR_ANY;
-    bind(sock,(void*)&a,sizeof(a));
-
-    // IPv4 only for SlowDNS upstream
-    struct sockaddr_in slow={0};
-    slow.sin_family=AF_INET; slow.sin_port=htons(SLOWDNS_PORT);
-    inet_pton(AF_INET,"127.0.0.1",&slow.sin_addr);
-
-    epoll_fd=epoll_create1(0);
-    struct epoll_event ev={.events=EPOLLIN,.data.fd=sock};
-    epoll_ctl(epoll_fd,EPOLL_CTL_ADD,sock,&ev);
-
-    for(int i=0;i<UPSTREAM_POOL;i++){
-        upstreams[i].fd=socket(AF_INET,SOCK_DGRAM,0);
-        fcntl(upstreams[i].fd,F_SETFL,O_NONBLOCK);
-        struct epoll_event ue={.events=EPOLLIN,.data.fd=upstreams[i].fd};
-        epoll_ctl(epoll_fd,EPOLL_CTL_ADD,upstreams[i].fd,&ue);
+        pthread_t tid;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        pthread_create(&tid, &attr, worker_thread, data);
+        pthread_attr_destroy(&attr);
     }
 
-    struct epoll_event events[MAX_EVENTS];
-
-    while(!shutdown_flag){
-        cleanup_expired();
-        int n=epoll_wait(epoll_fd,events,MAX_EVENTS,10);
-        for(int i=0;i<n;i++){
-            int fd=events[i].data.fd;
-            if(fd==sock){
-                unsigned char buf[BUFFER_SIZE];
-                struct sockaddr_in c; socklen_t l=sizeof(c);
-                int len=recvfrom(sock,buf,sizeof(buf),0,(void*)&c,&l);
-                if(len>0){
-                    patch_edns(buf,len,INT_EDNS);
-                    int u=get_upstream();
-                    if(u>=0){
-                        insert_req(u,buf,&c,l);
-                        sendto(upstreams[u].fd,buf,len,0,(void*)&slow,sizeof(slow));
-                    }
-                }
-            } else {
-                unsigned char buf[BUFFER_SIZE];
-                int len=recv(fd,buf,sizeof(buf),0);
-                if(len>0){
-                    uint16_t id=get_txid(buf);
-                    req_entry_t *e=find_req(id);
-                    if(e){
-                        patch_edns(buf,len,EXT_EDNS);
-                        sendto(sock,buf,len,0,(void*)&e->client_addr,e->addr_len);
-                        delete_req(e);
-                    }
-                }
-            }
-        }
-    }
+    close(listen_fd);
     return 0;
 }
-EOF
-    
-    echo -ne "  ${CYAN}Compiling EDNS Proxy...${NC}"
-    gcc -O3 -march=native -pipe -pthread /tmp/edns.c -o /usr/local/bin/edns-proxy 2>/dev/null
-    
-    if [ $? -eq 0 ]; then
-        chmod +x /usr/local/bin/edns-proxy
-        echo -e "\r  ${GREEN}✓ EDNS Proxy compiled (IPv4 only, SO_REUSEPORT enabled)${NC}"
-        log_message "EDNS Proxy compiled successfully"
+CEOF
+
+    echo -e "${YELLOW}🔨 Compiling C EDNS Proxy (gcc -Ofast -march=native -flto)...${NC}"
+    gcc -Ofast -march=native -flto -pthread -o "$EDNS_C_BIN" "$EDNS_C_SOURCE" 2>/dev/null
+
+    if [ -f "$EDNS_C_BIN" ] && [ -x "$EDNS_C_BIN" ]; then
+        echo -e "${GREEN}✅ C EDNS Proxy compiled successfully${NC}"
+        return 0
     else
-        echo -e "\r  ${RED}✗ Compilation failed - installing pre-compiled${NC}"
-        wget -q "$GITHUB_BASE/edns-proxy" -O /usr/local/bin/edns-proxy
-        chmod +x /usr/local/bin/edns-proxy
+        echo -e "${RED}❌ C EDNS Proxy compilation failed - will use Python fallback${NC}"
+        return 1
     fi
-    
-    print_step_end
 }
 
-# ============================================================================
-# USER MANAGEMENT SYSTEM
-# ============================================================================
-create_user_management() {
-    print_step "4"
-    print_info "Setting up User Management System"
-    
-    mkdir -p "$USERS_DIR"
-    
-    # User management script
-    cat > /usr/local/bin/slowdns-user << 'USERMGR'
+# ═══════════════════════════════════════════════════════════════
+# 3PROXY INSTALLATION
+# ═══════════════════════════════════════════════════════════════
+install_3proxy() {
+    echo -e "${YELLOW}🚀 Installing 3Proxy for Speed Boost...${NC}"
+
+    if [ -f "$THREEPROXY_BIN" ] && [ -x "$THREEPROXY_BIN" ]; then
+        echo -e "${GREEN}✅ 3Proxy binary already exists${NC}"
+        return 0
+    fi
+
+    apt-get install -y build-essential git curl 2>/dev/null
+
+    cd /tmp
+    rm -rf 3proxy 2>/dev/null || true
+
+    if git clone https://github.com/3proxy/3proxy.git 2>/dev/null; then
+        cd /tmp/3proxy
+        make -f Makefile.Linux 2>/dev/null
+        if [ -f "bin/3proxy" ]; then
+            cp bin/3proxy "$THREEPROXY_BIN"
+            chmod +x "$THREEPROXY_BIN"
+            echo -e "${GREEN}✅ 3Proxy compiled successfully${NC}"
+        fi
+    fi
+
+    if [ ! -f "$THREEPROXY_BIN" ]; then
+        echo -e "${YELLOW}⚠️  Trying pre-compiled binary...${NC}"
+        curl -fsSL "https://github.com/z3APA3A/3proxy/releases/download/0.9.4/3proxy-0.9.4.x86_64.linux.tar.gz" -o /tmp/3proxy.tar.gz 2>/dev/null
+        if [ -f /tmp/3proxy.tar.gz ]; then
+            cd /tmp
+            tar -xzf 3proxy.tar.gz 2>/dev/null
+            if [ -f "/tmp/3proxy/3proxy" ]; then
+                cp /tmp/3proxy/3proxy "$THREEPROXY_BIN"
+                chmod +x "$THREEPROXY_BIN"
+                echo -e "${GREEN}✅ 3Proxy binary extracted${NC}"
+            fi
+            rm -f /tmp/3proxy.tar.gz
+        fi
+    fi
+
+    if [ ! -f "$THREEPROXY_BIN" ]; then
+        echo -e "${YELLOW}⚠️ 3Proxy installation failed - continuing without it${NC}"
+        return 1
+    fi
+
+    mkdir -p "$THREEPROXY_DIR"
+    cat > "$THREEPROXY_DIR/3proxy.cfg" <<'EOF'
+nserver 8.8.8.8
+nserver 8.8.4.4
+nscache 65536
+timeouts 1 5 30 60 180 1800 15 60
+daemon
+pidfile /var/run/3proxy.pid
+auth none
+socks -p1080
+dnspr
+auth none
+allow *
+dnspr -p5353
+auth none
+allow *
+proxy -p8080
+log /var/log/3proxy.log D
+rotate 7
+EOF
+
+    cat > "$THREEPROXY_SERVICE" <<EOF
+[Unit]
+Description=3Proxy Speed Accelerator for ELITE-X
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=$THREEPROXY_BIN $THREEPROXY_DIR/3proxy.cfg
+ExecStop=/bin/kill -TERM \$MAINPID
+Restart=always
+RestartSec=5
+CPUQuota=30%
+MemoryMax=100M
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable 3proxy-elite 2>/dev/null || true
+    systemctl start 3proxy-elite 2>/dev/null || true
+
+    if systemctl is-active --quiet 3proxy-elite; then
+        echo -e "${GREEN}✅ 3Proxy installed and running${NC}"
+        return 0
+    else
+        echo -e "${YELLOW}⚠️ 3Proxy service not starting - check config${NC}"
+        return 1
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════
+# BANDWIDTH MONITOR
+# ═══════════════════════════════════════════════════════════════
+create_bandwidth_monitor() {
+    cat > /usr/local/bin/elite-x-bandwidth <<'BWEOF'
 #!/bin/bash
 
-USERS_DIR="/etc/slowdns/users"
-PUBLIC_KEY=$(cat /etc/slowdns/server.pub 2>/dev/null || echo "N/A")
+USER_DB="/etc/elite-x/users"
+BW_DIR="/etc/elite-x/bandwidth"
+PID_DIR="$BW_DIR/pidtrack"
+SCAN_INTERVAL=30
 
-create_user() {
-    echo -e "\033[0;36m╔══════════════════════════════════════════╗\033[0m"
-    echo -e "\033[0;36m║\033[0m      \033[1;37mCREATE NEW SLOWDNS USER\033[0m              \033[0;36m║\033[0m"
-    echo -e "\033[0;36m╚══════════════════════════════════════════╝\033[0m"
-    
-    read -p "$(echo -e "\033[1;33mEnter username: \033[0m")" USERNAME
-    
-    if [ -z "$USERNAME" ]; then
-        echo -e "\033[0;31m[✗] Username cannot be empty!\033[0m"
-        return 1
-    fi
-    
-    if [ -f "$USERS_DIR/$USERNAME.json" ]; then
-        echo -e "\033[0;31m[✗] User $USERNAME already exists!\033[0m"
-        return 1
-    fi
-    
-    # Generate random password
-    PASSWORD=$(openssl rand -base64 12 2>/dev/null || echo "$(date +%s | sha256sum | base64 | head -c 12)")
-    
-    # Get server IP and NS
-    SERVER_IP=$(curl -s --connect-timeout 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
-    NS=$(cat /etc/slowdns/ns.conf 2>/dev/null || echo "dns.google.com")
-    
-    # Create system user for SSH
-    useradd -m -s /bin/bash "$USERNAME" 2>/dev/null
-    echo "$USERNAME:$PASSWORD" | chpasswd
-    
-    # Create user JSON with details
-    cat > "$USERS_DIR/$USERNAME.json" << EOF
-{
-    "username": "$USERNAME",
-    "password": "$PASSWORD",
-    "server_ip": "$SERVER_IP",
-    "ssh_port": "22",
-    "slowdns_port": "5300",
-    "edns_port": "53",
-    "public_key": "$PUBLIC_KEY",
-    "nameserver": "$NS",
-    "created": "$(date '+%Y-%m-%d %H:%M:%S')",
-    "status": "active"
-}
+mkdir -p "$BW_DIR" "$PID_DIR"
+
+while true; do
+    current_ts=$(date +%s)
+    declare -A uid_to_user=()
+    declare -A session_pids=()
+    declare -A loginuid_pids=()
+
+    while IFS=: read -r username _ uid _rest; do
+        [[ -n "$username" && "$uid" =~ ^[0-9]+$ ]] && uid_to_user["$uid"]="$username"
+    done < /etc/passwd
+
+    while read -r ssh_pid ssh_owner; do
+        [[ "$ssh_pid" =~ ^[0-9]+$ ]] || continue
+        if [[ -n "$ssh_owner" && "$ssh_owner" != "root" && "$ssh_owner" != "sshd" ]]; then
+            session_pids["$ssh_owner"]+="$ssh_pid "
+        fi
+    done < <(ps -C sshd -o pid=,user= 2>/dev/null)
+
+    for p in /proc/[0-9]*/loginuid; do
+        [[ -f "$p" ]] || continue
+        login_uid=""
+        read -r login_uid < "$p" || login_uid=""
+        [[ "$login_uid" =~ ^[0-9]+$ && "$login_uid" != "4294967295" ]] || continue
+
+        session_user="${uid_to_user[$login_uid]}"
+        [[ -n "$session_user" ]] || continue
+
+        pid_dir=$(dirname "$p")
+        pid_num=$(basename "$pid_dir")
+        comm=""
+        read -r comm < "$pid_dir/comm" || comm=""
+        [[ "$comm" == "sshd" ]] || continue
+
+        ppid_val=""
+        while read -r key value; do
+            if [[ "$key" == "PPid:" ]]; then
+                ppid_val="${value:-}"
+                break
+            fi
+        done < "$pid_dir/status"
+        [[ "$ppid_val" == "1" ]] && continue
+
+        loginuid_pids["$session_user"]+="$pid_num "
+    done
+
+    for user_file in "$USER_DB"/*; do
+        [[ -f "$user_file" ]] || continue
+        username=$(basename "$user_file")
+
+        bandwidth_gb=$(grep "Bandwidth_GB:" "$user_file" 2>/dev/null | awk '{print $2}')
+        [[ -z "$bandwidth_gb" || "$bandwidth_gb" == "0" ]] && continue
+
+        declare -A unique_pids=()
+        pid_candidates=""
+        [[ -n "${session_pids[$username]}" ]] && pid_candidates="${session_pids[$username]}"
+        [[ -z "$pid_candidates" ]] && pid_candidates="${loginuid_pids[$username]}"
+
+        for pid in $pid_candidates; do
+            [[ "$pid" =~ ^[0-9]+$ ]] && unique_pids["$pid"]=1
+        done
+
+        if (( ${#unique_pids[@]} == 0 )); then
+            rm -f "$PID_DIR/${username}__"*.last 2>/dev/null
+            continue
+        fi
+
+        usagefile="$BW_DIR/${username}.usage"
+        accumulated=0
+        [[ -f "$usagefile" ]] && { read -r accumulated < "$usagefile"; [[ "$accumulated" =~ ^[0-9]+$ ]] || accumulated=0; }
+
+        delta_total=0
+        for pid in "${!unique_pids[@]}"; do
+            io_file="/proc/$pid/io"
+            cur=0
+            if [[ -r "$io_file" ]]; then
+                rchar=0; wchar=0
+                while read -r key value; do
+                    case "$key" in
+                        rchar:) rchar=${value:-0} ;;
+                        wchar:) wchar=${value:-0} ;;
+                    esac
+                done < "$io_file"
+                cur=$((rchar + wchar))
+            fi
+
+            pidfile="$PID_DIR/${username}__${pid}.last"
+            if [[ -f "$pidfile" ]]; then
+                read -r prev < "$pidfile"
+                [[ "$prev" =~ ^[0-9]+$ ]] || prev=0
+                d=$(( cur >= prev ? cur - prev : cur ))
+                delta_total=$((delta_total + d))
+            fi
+            printf "%s\n" "$cur" > "$pidfile"
+        done
+
+        for f in "$PID_DIR/${username}__"*.last; do
+            [[ -f "$f" ]] || continue
+            fpid=${f##*__}; fpid=${fpid%.last}
+            [[ -d "/proc/$fpid" ]] || rm -f "$f"
+        done
+
+        new_total=$((accumulated + delta_total))
+        printf "%s\n" "$new_total" > "$usagefile"
+
+        quota_bytes=$(awk "BEGIN {printf \"%.0f\", $bandwidth_gb * 1073741824}")
+        if [[ "$quota_bytes" =~ ^[0-9]+$ ]] && (( new_total >= quota_bytes )); then
+            if ! passwd -S "$username" 2>/dev/null | grep -q "L"; then
+                usermod -L "$username" 2>/dev/null
+                killall -u "$username" -9 2>/dev/null
+                echo "$(date '+%Y-%m-%d %H:%M:%S') - BLOCKED: Bandwidth quota exceeded (${bandwidth_gb}GB)" >> "/etc/elite-x/banned/$username"
+            fi
+        fi
+    done
+
+    sleep "$SCAN_INTERVAL"
+done
+BWEOF
+    chmod +x /usr/local/bin/elite-x-bandwidth
+
+    cat > /etc/systemd/system/elite-x-bandwidth.service <<EOF
+[Unit]
+Description=ELITE-X Bandwidth Monitor (GB Limits)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/elite-x-bandwidth
+Restart=always
+RestartSec=10
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target
 EOF
-    
+}
+
+# ═══════════════════════════════════════════════════════════════
+# CONNECTION MONITOR WITH AUTO-DELETE
+# ═══════════════════════════════════════════════════════════════
+create_connection_monitor() {
+    cat > /usr/local/bin/elite-x-connmon <<'CONNEOF'
+#!/bin/bash
+
+USER_DB="/etc/elite-x/users"
+BANNED_DB="/etc/elite-x/banned"
+DELETED_DB="/etc/elite-x/deleted"
+BW_DIR="/etc/elite-x/bandwidth"
+PID_DIR="$BW_DIR/pidtrack"
+AUTOBAN_FLAG="/etc/elite-x/autoban_enabled"
+CONN_DB="/etc/elite-x/connections"
+mkdir -p "$CONN_DB" "$BANNED_DB" "$DELETED_DB"
+
+get_connection_count() {
+    local username=$1
+    local count=0
+    who | grep -qw "$username" 2>/dev/null && count=$(who | grep -wc "$username" 2>/dev/null)
+    [ "$count" -eq 0 ] && count=$(ps aux | grep "sshd:" | grep "$username" | grep -v grep | grep -v "sshd:.*@notty" | wc -l)
+    echo ${count:-0}
+}
+
+delete_expired_user() {
+    local username=$1
+    local reason=$2
+
+    cp "$USER_DB/$username" "$DELETED_DB/${username}_$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+
+    pkill -u "$username" 2>/dev/null || true
+    killall -u "$username" -9 2>/dev/null || true
+    userdel -r "$username" 2>/dev/null || true
+
+    rm -f "$USER_DB/$username"
+    rm -f "/etc/elite-x/data_usage/$username"
+    rm -f "$CONN_DB/$username"
+    rm -f "$BANNED_DB/$username"
+    rm -f "$BW_DIR/${username}.usage"
+    rm -f "$PID_DIR/${username}__"*.last 2>/dev/null
+
+    logger -t "elite-x" "Auto-deleted user: $username ($reason)"
+}
+
+while true; do
+    current_ts=$(date +%s)
+
+    if [ -d "$USER_DB" ]; then
+        for user_file in "$USER_DB"/*; do
+            [ -f "$user_file" ] || continue
+            username=$(basename "$user_file")
+
+            if ! id "$username" &>/dev/null; then
+                rm -f "$USER_DB/$username"
+                continue
+            fi
+
+            # Check expiry
+            expire_date=$(grep "Expire:" "$user_file" 2>/dev/null | awk '{print $2}')
+            if [ -n "$expire_date" ]; then
+                expire_ts=$(date -d "$expire_date" +%s 2>/dev/null || echo 0)
+                if [ "$expire_ts" -gt 0 ] && [ "$current_ts" -gt "$expire_ts" ]; then
+                    delete_expired_user "$username" "Account expired on $expire_date"
+                    continue
+                fi
+            fi
+
+            # Connection limit monitoring
+            conn_limit=$(grep "Conn_Limit:" "$user_file" 2>/dev/null | awk '{print $2}')
+            conn_limit=${conn_limit:-1}
+            current_conn=$(get_connection_count "$username")
+            echo "$current_conn" > "$CONN_DB/$username"
+
+            autoban=$(cat "$AUTOBAN_FLAG" 2>/dev/null || echo "0")
+            is_locked=$(passwd -S "$username" 2>/dev/null | grep -q "L" && echo "yes" || echo "no")
+
+            if [ "$current_conn" -gt "$conn_limit" ] && [ "$is_locked" = "no" ] && [ "$autoban" = "1" ]; then
+                usermod -L "$username" 2>/dev/null
+                pkill -u "$username" 2>/dev/null || true
+                echo "$(date) - BLOCKED: Exceeded connection limit ($current_conn/$conn_limit)" >> "$BANNED_DB/$username"
+            fi
+        done
+    fi
+    sleep 5
+done
+CONNEOF
+    chmod +x /usr/local/bin/elite-x-connmon
+
+    cat > /etc/systemd/system/elite-x-connmon.service <<EOF
+[Unit]
+Description=ELITE-X Connection Monitor (Auto-Ban + Auto-Delete)
+After=network.target ssh.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/elite-x-connmon
+Restart=always
+RestartSec=5
+CPUQuota=20%
+MemoryMax=50M
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+# ═══════════════════════════════════════════════════════════════
+# DATA USAGE MONITOR
+# ═══════════════════════════════════════════════════════════════
+create_data_usage_monitor() {
+    cat > /usr/local/bin/elite-x-datausage <<'DATAEOF'
+#!/bin/bash
+
+USER_DB="/etc/elite-x/users"
+USAGE_DB="/etc/elite-x/data_usage"
+BW_DIR="/etc/elite-x/bandwidth"
+mkdir -p "$USAGE_DB" "$BW_DIR"
+CURRENT_MONTH=$(date +%Y-%m)
+
+while true; do
+    if [ -d "$USER_DB" ]; then
+        for user_file in "$USER_DB"/*; do
+            [ -f "$user_file" ] || continue
+            username=$(basename "$user_file")
+
+            USAGE_FILE="$USAGE_DB/$username"
+            BW_USAGE="$BW_DIR/${username}.usage"
+
+            total_gb="0.00"
+            if [ -f "$BW_USAGE" ]; then
+                total_bytes=$(cat "$BW_USAGE" 2>/dev/null || echo 0)
+                total_gb=$(echo "scale=2; $total_bytes / 1073741824" | bc 2>/dev/null || echo "0.00")
+            fi
+
+            cat > "$USAGE_FILE" <<INFO
+month: $CURRENT_MONTH
+total_gb: $total_gb
+last_updated: $(date)
+INFO
+        done
+    fi
+    sleep 30
+done
+DATAEOF
+    chmod +x /usr/local/bin/elite-x-datausage
+
+    cat > /etc/systemd/system/elite-x-datausage.service <<EOF
+[Unit]
+Description=ELITE-X Monthly Data Usage Monitor
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/elite-x-datausage
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+# ═══════════════════════════════════════════════════════════════
+# USER MANAGEMENT SCRIPT
+# ═══════════════════════════════════════════════════════════════
+create_user_script() {
+    cat > /usr/local/bin/elite-x-user <<'USEREOF'
+#!/bin/bash
+
+RED='\033[0;31m';GREEN='\033[0;32m';YELLOW='\033[1;33m';CYAN='\033[0;36m'
+WHITE='\033[1;37m';BOLD='\033[1m';ORANGE='\033[0;33m'
+LIGHT_RED='\033[1;31m';LIGHT_GREEN='\033[1;32m';PURPLE='\033[0;35m';GRAY='\033[0;90m';NC='\033[0m'
+
+UD="/etc/elite-x/users"
+USAGE_DB="/etc/elite-x/data_usage"
+DD="/etc/elite-x/deleted"
+BD="/etc/elite-x/banned"
+CONN_DB="/etc/elite-x/connections"
+BW_DIR="/etc/elite-x/bandwidth"
+PID_DIR="$BW_DIR/pidtrack"
+AUTOBAN_FLAG="/etc/elite-x/autoban_enabled"
+mkdir -p "$UD" "$USAGE_DB" "$DD" "$BD" "$CONN_DB" "$BW_DIR" "$PID_DIR"
+
+get_connection_count() {
+    local username="$1"
+    local count=0
+    who | grep -qw "$username" 2>/dev/null && count=$(who | grep -wc "$username" 2>/dev/null)
+    [ "$count" -eq 0 ] && count=$(ps aux | grep "sshd:" | grep "$username" | grep -v grep | grep -v "sshd:.*@notty" | wc -l)
+    echo ${count:-0}
+}
+
+get_bandwidth_usage() {
+    local username="$1"
+    local bw_file="$BW_DIR/${username}.usage"
+    if [ -f "$bw_file" ]; then
+        local total_bytes=$(cat "$bw_file" 2>/dev/null || echo 0)
+        echo "scale=2; $total_bytes / 1073741824" | bc 2>/dev/null || echo "0.00"
+    else
+        echo "0.00"
+    fi
+}
+
+add_user() {
     clear
-    echo -e "\033[0;32m╔══════════════════════════════════════════════════════════════╗\033[0m"
-    echo -e "\033[0;32m║\033[0m              \033[1;37mUSER CREATED SUCCESSFULLY\033[0m                     \033[0;32m║\033[0m"
-    echo -e "\033[0;32m╠══════════════════════════════════════════════════════════════╣\033[0m"
-    echo -e "\033[0;32m║\033[0m \033[1;33mUsername:\033[0m    \033[1;37m$USERNAME\033[0m"
-    echo -e "\033[0;32m║\033[0m \033[1;33mPassword:\033[0m    \033[1;37m$PASSWORD\033[0m"
-    echo -e "\033[0;32m║\033[0m \033[1;33mPublic Key:\033[0m  \033[1;37m$PUBLIC_KEY\033[0m"
-    echo -e "\033[0;32m║\033[0m \033[1;33mNS:\033[0m         \033[1;37m$NS\033[0m"
-    echo -e "\033[0;32m║\033[0m \033[1;33mServer IP:\033[0m  \033[1;37m$SERVER_IP\033[0m"
-    echo -e "\033[0;32m║\033[0m \033[1;33mSSH Port:\033[0m   \033[1;37m22\033[0m"
-    echo -e "\033[0;32m║\033[0m \033[1;33mDNS Port:\033[0m   \033[1;37m53\033[0m"
-    echo -e "\033[0;32m╚══════════════════════════════════════════════════════════════╝\033[0m"
-    echo ""
-    echo -e "\033[1;36m📋 Client Config (http-custom):\033[0m"
-    echo -e "\033[0;33m┌──────────────────────────────────────────────────────────────┐\033[0m"
-    echo -e "\033[0;33m│\033[0m POST / HTTP/1.1"
-    echo -e "\033[0;33m│\033[0m Host: $NS"
-    echo -e "\033[0;33m│\033[0m User-Agent: [$USERNAME]"
-    echo -e "\033[0;33m│\033[0m [crlf][crlf]"
-    echo -e "\033[0;33m└──────────────────────────────────────────────────────────────┘\033[0m"
-    
-    # Save to all users list
-    echo "$USERNAME:$PASSWORD:$(date '+%Y-%m-%d')" >> "$USERS_DIR/all_users.txt"
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${YELLOW}              CREATE SSH + DNS USER (FALCON ENHANCED)          ${CYAN}║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+
+    read -p "$(echo -e $GREEN"Username: "$NC)" username
+    if id "$username" &>/dev/null; then
+        echo -e "${RED}User already exists!${NC}"
+        return
+    fi
+
+    read -p "$(echo -e $GREEN"Password [auto-generate]: "$NC)" password
+    [ -z "$password" ] && password=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 8) && echo -e "${GREEN}🔑 Generated: ${YELLOW}$password${NC}"
+
+    read -p "$(echo -e $GREEN"Expire (days) [30]: "$NC)" days; days=${days:-30}
+    [[ ! "$days" =~ ^[0-9]+$ ]] && { echo -e "${RED}Invalid days!${NC}"; return; }
+
+    read -p "$(echo -e $GREEN"Connection limit [1]: "$NC)" conn_limit; conn_limit=${conn_limit:-1}
+    [[ ! "$conn_limit" =~ ^[0-9]+$ ]] && conn_limit=1
+
+    read -p "$(echo -e $GREEN"Bandwidth limit in GB (0 = unlimited) [0]: "$NC)" bandwidth_gb; bandwidth_gb=${bandwidth_gb:-0}
+    [[ ! "$bandwidth_gb" =~ ^[0-9]+\.?[0-9]*$ ]] && bandwidth_gb=0
+
+    useradd -m -s /bin/false "$username"
+    echo "$username:$password" | chpasswd
+    expire_date=$(date -d "+$days days" +"%Y-%m-%d")
+    chage -E "$expire_date" "$username"
+
+    cat > "$UD/$username" <<INFO
+Username: $username
+Password: $password
+Expire: $expire_date
+Conn_Limit: $conn_limit
+Bandwidth_GB: $bandwidth_gb
+Created: $(date +"%Y-%m-%d %H:%M:%S")
+INFO
+
+    echo "0" > "$BW_DIR/${username}.usage"
+
+    local bw_disp="Unlimited"; [ "$bandwidth_gb" != "0" ] && bw_disp="${bandwidth_gb} GB"
+    SERVER=$(cat /etc/elite-x/subdomain 2>/dev/null || echo "?")
+
+    clear
+    echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║${YELLOW}                  USER CREATED SUCCESSFULLY                    ${GREEN}║${NC}"
+    echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${GREEN}║${WHITE}  Username   :${CYAN} $username${NC}"
+    echo -e "${GREEN}║${WHITE}  Password   :${CYAN} $password${NC}"
+    echo -e "${GREEN}║${WHITE}  Server     :${CYAN} $SERVER${NC}"
+    echo -e "${GREEN}║${WHITE}  Expire     :${CYAN} $expire_date${NC}"
+    echo -e "${GREEN}║${WHITE}  Max Login  :${CYAN} $conn_limit${NC}"
+    echo -e "${GREEN}║${WHITE}  Bandwidth  :${CYAN} $bw_disp${NC}"
+    echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
 }
 
 list_users() {
-    echo -e "\033[0;36m╔══════════════════════════════════════════╗\033[0m"
-    echo -e "\033[0;36m║\033[0m          \033[1;37mREGISTERED USERS\033[0m                   \033[0;36m║\033[0m"
-    echo -e "\033[0;36m╠══════════════════════════════════════════╣\033[0m"
-    
-    if [ -d "$USERS_DIR" ] && [ "$(ls -A $USERS_DIR/*.json 2>/dev/null)" ]; then
-        for f in "$USERS_DIR"/*.json; do
-            username=$(grep -o '"username": *"[^"]*"' "$f" | cut -d'"' -f4)
-            created=$(grep -o '"created": *"[^"]*"' "$f" | cut -d'"' -f4)
-            echo -e "\033[0;36m║\033[0m \033[1;32m●\033[0m \033[1;37m$username\033[0m - Created: $created"
-        done
-    else
-        echo -e "\033[0;36m║\033[0m   \033[0;33mNo users found\033[0m"
+    clear
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${YELLOW}${BOLD}                                         ACTIVE USERS + BANDWIDTH + STATUS                                          ${CYAN}║${NC}"
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣${NC}"
+
+    if [ -z "$(ls -A "$UD" 2>/dev/null)" ]; then
+        echo -e "${CYAN}║${RED}                                                    No users found                                                 ${CYAN}║${NC}"
+        echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝${NC}"
+        return
     fi
-    echo -e "\033[0;36m╚══════════════════════════════════════════╝\033[0m"
+
+    printf "${CYAN}║${WHITE} %-16s %-14s %-10s %-16s %-22s${CYAN} ║${NC}\n" "USERNAME" "EXPIRE" "LOGIN" "BANDWIDTH" "STATUS"
+    echo -e "${CYAN}╟──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╢${NC}"
+
+    for user in "$UD"/*; do
+        [ ! -f "$user" ] && continue
+        u=$(basename "$user")
+        ex=$(grep "Expire:" "$user" | cut -d' ' -f2)
+        limit=$(grep "Conn_Limit:" "$user" | awk '{print $2}'); limit=${limit:-1}
+        bw_limit=$(grep "Bandwidth_GB:" "$user" | awk '{print $2}'); bw_limit=${bw_limit:-0}
+
+        total_gb=$(get_bandwidth_usage "$u")
+        current_conn=$(get_connection_count "$u")
+
+        expire_ts=$(date -d "$ex" +%s 2>/dev/null || echo 0)
+        current_ts=$(date +%s)
+        days_left=$(( (expire_ts - current_ts) / 86400 ))
+
+        # Status
+        if passwd -S "$u" 2>/dev/null | grep -q "L"; then
+            status="${RED}🔒 LOCKED${NC}"
+        elif [ "$current_conn" -gt 0 ]; then
+            status="${LIGHT_GREEN}🟢 ONLINE${NC}"
+        elif [ $days_left -le 0 ]; then
+            status="${RED}⛔ EXPIRED${NC}"
+        elif [ $days_left -le 3 ]; then
+            status="${LIGHT_RED}⚠️ CRITICAL${NC}"
+        elif [ $days_left -le 7 ]; then
+            status="${YELLOW}⚠️ WARNING${NC}"
+        else
+            status="${YELLOW}⚫ OFFLINE${NC}"
+        fi
+
+        # Bandwidth display
+        if [ "$bw_limit" != "0" ] && [ -n "$bw_limit" ]; then
+            bw_percent=$(echo "scale=1; ($total_gb / $bw_limit) * 100" | bc 2>/dev/null || echo "0")
+            if [ "$(echo "$bw_percent >= 100" | bc 2>/dev/null)" = "1" ]; then
+                bw_display="${RED}${total_gb}/${bw_limit}GB${NC}"
+            elif [ "$(echo "$bw_percent > 80" | bc 2>/dev/null)" = "1" ]; then
+                bw_display="${YELLOW}${total_gb}/${bw_limit}GB${NC}"
+            else
+                bw_display="${GREEN}${total_gb}/${bw_limit}GB${NC}"
+            fi
+        else
+            bw_display="${GRAY}${total_gb}GB/∞${NC}"
+        fi
+
+        # Login display
+        [ "$current_conn" -ge "$limit" ] && login_display="${RED}${current_conn}/${limit}${NC}" || login_display="${GREEN}${current_conn}/${limit}${NC}"
+        [ "$current_conn" -eq 0 ] && login_display="${GRAY}0/${limit}${NC}"
+
+        # Expire display
+        [ $days_left -le 0 ] && exp_display="${RED}${ex}${NC}" || exp_display="${GREEN}${ex}${NC}"
+        [ $days_left -le 7 ] && [ $days_left -gt 0 ] && exp_display="${YELLOW}${ex}${NC}"
+
+        printf "${CYAN}║${WHITE} %-16s %-14b %-10b %-16b %-22b${CYAN} ║${NC}\n" "$u" "$exp_display" "$login_display" "$bw_display" "$status"
+    done
+
+    TOTAL_USERS=$(ls "$UD" 2>/dev/null | wc -l)
+    TOTAL_ONLINE=$(who | wc -l)
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${YELLOW}  📊 Total Users: ${GREEN}${TOTAL_USERS}${YELLOW}  |  Online Now: ${GREEN}${TOTAL_ONLINE}${NC}                                                                               ${CYAN}║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝${NC}"
+}
+
+renew_user() {
+    read -p "$(echo -e $GREEN"Username: "$NC)" username
+    [ ! -f "$UD/$username" ] && { echo -e "${RED}User not found!${NC}"; return; }
+    read -p "$(echo -e $GREEN"Additional days: "$NC)" days
+    current_expire=$(grep "Expire:" "$UD/$username" | cut -d' ' -f2)
+    new_expire=$(date -d "$current_expire +$days days" +"%Y-%m-%d")
+    sed -i "s/Expire: .*/Expire: $new_expire/" "$UD/$username"
+    chage -E "$new_expire" "$username" 2>/dev/null
+    usermod -U "$username" 2>/dev/null
+    echo -e "${GREEN}✅ User renewed until $new_expire${NC}"
+}
+
+set_bandwidth_limit() {
+    read -p "$(echo -e $GREEN"Username: "$NC)" username
+    [ ! -f "$UD/$username" ] && { echo -e "${RED}User not found!${NC}"; return; }
+    current_bw=$(grep "Bandwidth_GB:" "$UD/$username" 2>/dev/null | awk '{print $2}')
+    echo -e "${CYAN}Current: ${YELLOW}${current_bw:-Not set} GB${NC}"
+    read -p "$(echo -e $GREEN"New limit (0=unlimited): "$NC)" new_bw
+    [[ ! "$new_bw" =~ ^[0-9]+\.?[0-9]*$ ]] && { echo -e "${RED}Invalid!${NC}"; return; }
+    grep -q "Bandwidth_GB:" "$UD/$username" && sed -i "s/Bandwidth_GB: .*/Bandwidth_GB: $new_bw/" "$UD/$username" || echo "Bandwidth_GB: $new_bw" >> "$UD/$username"
+    [ "$new_bw" = "0" ] && usermod -U "$username" 2>/dev/null
+    echo -e "${GREEN}✅ Bandwidth limit updated${NC}"
+}
+
+reset_bandwidth() {
+    read -p "$(echo -e $GREEN"Username: "$NC)" username
+    [ ! -f "$UD/$username" ] && { echo -e "${RED}User not found!${NC}"; return; }
+    echo "0" > "$BW_DIR/${username}.usage"
+    rm -rf "$PID_DIR/${username}" 2>/dev/null
+    rm -f "$PID_DIR/${username}__"*.last 2>/dev/null
+    usermod -U "$username" 2>/dev/null
+    echo -e "${GREEN}✅ Bandwidth reset to 0${NC}"
+}
+
+lock_user() {
+    read -p "$(echo -e $GREEN"Username: "$NC)" u
+    [ ! -f "$UD/$u" ] && { echo -e "${RED}User not found!${NC}"; return; }
+    usermod -L "$u" 2>/dev/null
+    pkill -u "$u" 2>/dev/null || true
+    echo "$(date) - MANUALLY LOCKED" >> "$BD/$u"
+    echo -e "${GREEN}✅ User locked${NC}"
+}
+
+unlock_user() {
+    read -p "$(echo -e $GREEN"Username: "$NC)" u
+    [ ! -f "$UD/$u" ] && { echo -e "${RED}User not found!${NC}"; return; }
+    usermod -U "$u" 2>/dev/null
+    echo "$(date) - MANUALLY UNLOCKED" >> "$BD/$u"
+    echo -e "${GREEN}✅ User unlocked${NC}"
 }
 
 delete_user() {
-    echo -e "\033[0;36m╔══════════════════════════════════════════╗\033[0m"
-    echo -e "\033[0;36m║\033[0m        \033[1;37mDELETE SLOWDNS USER\033[0m                  \033[0;36m║\033[0m"
-    echo -e "\033[0;36m╚══════════════════════════════════════════╝\033[0m"
-    
-    read -p "$(echo -e "\033[1;33mEnter username to delete: \033[0m")" USERNAME
-    
-    if [ -f "$USERS_DIR/$USERNAME.json" ]; then
-        userdel -r "$USERNAME" 2>/dev/null
-        rm -f "$USERS_DIR/$USERNAME.json"
-        sed -i "/^$USERNAME:/d" "$USERS_DIR/all_users.txt" 2>/dev/null
-        echo -e "\033[0;32m[✓] User $USERNAME deleted successfully!\033[0m"
-    else
-        echo -e "\033[0;31m[✗] User $USERNAME not found!\033[0m"
-    fi
+    read -p "$(echo -e $GREEN"Username: "$NC)" u
+    [ ! -f "$UD/$u" ] && { echo -e "${RED}User not found!${NC}"; return; }
+    cp "$UD/$u" "$DD/${u}_$(date +%Y%m%d_%H%M%S)" 2>/dev/null
+    pkill -u "$u" 2>/dev/null || true
+    killall -u "$u" -9 2>/dev/null || true
+    userdel -r "$u" 2>/dev/null
+    rm -f "$UD/$u" "$USAGE_DB/$u" "$CONN_DB/$u" "$BD/$u" "$BW_DIR/${u}.usage"
+    rm -rf "$PID_DIR/${u}" 2>/dev/null
+    echo -e "${GREEN}✅ User deleted${NC}"
 }
 
-show_user_details() {
-    read -p "$(echo -e "\033[1;33mEnter username: \033[0m")" USERNAME
-    
-    if [ -f "$USERS_DIR/$USERNAME.json" ]; then
-        echo -e "\033[0;32m╔══════════════════════════════════════════╗\033[0m"
-        echo -e "\033[0;32m║\033[0m         \033[1;37mUSER DETAILS\033[0m                       \033[0;32m║\033[0m"
-        echo -e "\033[0;32m╚══════════════════════════════════════════╝\033[0m"
-        cat "$USERS_DIR/$USERNAME.json" | grep -v '{' | grep -v '}' | while IFS=: read key value; do
-            key=$(echo $key | tr -d '" ,')
-            value=$(echo $value | tr -d '" ,')
-            echo -e "\033[1;33m$key:\033[0m \033[1;37m$value\033[0m"
-        done
-    else
-        echo -e "\033[0;31m[✗] User $USERNAME not found!\033[0m"
-    fi
+details_user() {
+    read -p "$(echo -e $GREEN"Username: "$NC)" username
+    [ ! -f "$UD/$username" ] && { echo -e "${RED}User not found!${NC}"; return; }
+
+    clear
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${YELLOW}              USER DETAILS + BANDWIDTH                         ${CYAN}║${NC}"
+    echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    cat "$UD/$username" | while read line; do echo -e "${CYAN}║${WHITE}  $line${NC}"; done
+
+    total_gb=$(get_bandwidth_usage "$username")
+    bw_limit=$(grep "Bandwidth_GB:" "$UD/$username" 2>/dev/null | awk '{print $2}')
+    bw_limit=${bw_limit:-0}
+    current_conn=$(get_connection_count "$username")
+
+    echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${WHITE}  Active Sessions: ${GREEN}${current_conn}${NC}"
+    echo -e "${CYAN}║${WHITE}  Bandwidth Used: ${GREEN}${total_gb} GB${NC} / ${YELLOW}${bw_limit:-Unlimited} GB${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
 }
 
-# Main menu for user management
-case "$1" in
-    create)
-        create_user
-        ;;
-    list)
-        list_users
-        ;;
-    delete)
-        delete_user
-        ;;
-    details)
-        show_user_details
-        ;;
-    *)
-        echo "Usage: slowdns-user {create|list|delete|details}"
-        ;;
+case $1 in
+    add) add_user ;;
+    list) list_users ;;
+    details) details_user ;;
+    renew) renew_user ;;
+    setlimit) read -p "Username: " u; read -p "New limit: " l; [ -f "$UD/$u" ] && { sed -i "s/Conn_Limit: .*/Conn_Limit: $l/" "$UD/$u"; echo -e "${GREEN}✅ Updated${NC}"; } || echo -e "${RED}Not found${NC}" ;;
+    setbw) set_bandwidth_limit ;;
+    resetdata) reset_bandwidth ;;
+    deleted) ls "$DD/" 2>/dev/null | head -20 || echo "No deleted users" ;;
+    lock) lock_user ;;
+    unlock) unlock_user ;;
+    del) delete_user ;;
+    *) echo "Usage: elite-x-user {add|list|details|renew|setlimit|setbw|resetdata|deleted|lock|unlock|del}" ;;
 esac
-USERMGR
-    
-    chmod +x /usr/local/bin/slowdns-user
-    
-    print_success "User management system created"
-    print_step_end
+USEREOF
+    chmod +x /usr/local/bin/elite-x-user
 }
 
-# ============================================================================
-# CREATE TERMINAL PANEL (VPS Menu)
-# ============================================================================
-create_terminal_panel() {
-    print_step "5"
-    print_info "Creating Terminal VPS Panel"
-    
-    cat > /usr/local/bin/slowdns-panel << 'PANELSCRIPT'
+# ═══════════════════════════════════════════════════════════════
+# MAIN MENU
+# ═══════════════════════════════════════════════════════════════
+create_main_menu() {
+    cat > /usr/local/bin/elite-x <<'MENUEOF'
 #!/bin/bash
 
-# Terminal Panel for ELITE-X8 SlowDNS
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-WHITE='\033[1;37m'
-BOLD='\033[1m'
-NC='\033[0m'
+RED='\033[0;31m';GREEN='\033[0;32m';YELLOW='\033[1;33m';CYAN='\033[0;36m'
+PURPLE='\033[0;35m';WHITE='\033[1;37m';BOLD='\033[1m';NC='\033[0m'
+ORANGE='\033[0;33m';LIGHT_RED='\033[1;31m';LIGHT_GREEN='\033[1;32m';GRAY='\033[0;90m'
 
-USERS_DIR="/etc/slowdns/users"
-PUBLIC_KEY=$(cat /etc/slowdns/server.pub 2>/dev/null || echo "N/A")
-SERVER_IP=$(curl -s --connect-timeout 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
-NS=$(cat /etc/slowdns/ns.conf 2>/dev/null || echo "dns.google.com")
+UD="/etc/elite-x/users"
+BW_DIR="/etc/elite-x/bandwidth"
+AUTOBAN_FLAG="/etc/elite-x/autoban_enabled"
 
-show_header() {
+show_dashboard() {
     clear
-    echo -e "${PURPLE}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${NC}${CYAN}          🚀 ELITE-X8 SLOWDNS VPS PANEL${NC}                   ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC}${WHITE}                    Management Console${NC}                     ${PURPLE}║${NC}"
-    echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-}
+    IP=$(cat /etc/elite-x/cached_ip 2>/dev/null || echo "Unknown")
+    SUB=$(cat /etc/elite-x/subdomain 2>/dev/null || echo "Not set")
+    LOCATION=$(cat /etc/elite-x/location 2>/dev/null || echo "South Africa")
+    MTU=$(cat /etc/elite-x/mtu 2>/dev/null || echo "1800")
+    RAM=$(free -h | awk '/^Mem:/{print $3"/"$2}')
 
-show_status() {
-    echo -e "${CYAN}┌─────────────────────────────────────────────────────────────┐${NC}"
-    echo -e "${CYAN}│${NC} ${WHITE}${BOLD}📊 SERVER STATUS${NC}                                            ${CYAN}│${NC}"
-    echo -e "${CYAN}├─────────────────────────────────────────────────────────────┤${NC}"
-    
-    # Check services
-    if systemctl is-active --quiet server-sldns; then
-        echo -e "${CYAN}│${NC} ${GREEN}●${NC} SlowDNS Service:    ${GREEN}Running${NC}"
-    else
-        echo -e "${CYAN}│${NC} ${RED}●${NC} SlowDNS Service:    ${RED}Stopped${NC}"
+    DNS=$(systemctl is-active dnstt-elite-x 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
+    PRX=$(systemctl is-active dnstt-elite-x-proxy 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
+    BW=$(systemctl is-active elite-x-bandwidth 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
+    P3X=$(systemctl is-active 3proxy-elite 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
+
+    TOTAL_USERS=$(ls -1 "$UD" 2>/dev/null | wc -l)
+    ONLINE=$(who | wc -l)
+
+    TOTAL_BW=0
+    if [ -d "$BW_DIR" ]; then
+        for f in "$BW_DIR"/*.usage; do
+            [ -f "$f" ] || continue
+            b=$(cat "$f" 2>/dev/null || echo 0)
+            gb=$(echo "scale=2; $b / 1073741824" | bc 2>/dev/null || echo "0")
+            TOTAL_BW=$(echo "$TOTAL_BW + $gb" | bc 2>/dev/null || echo "$TOTAL_BW")
+        done
     fi
-    
-    if systemctl is-active --quiet edns-proxy; then
-        echo -e "${CYAN}│${NC} ${GREEN}●${NC} EDNS Proxy:         ${GREEN}Running${NC}"
-    else
-        echo -e "${CYAN}│${NC} ${RED}●${NC} EDNS Proxy:         ${RED}Stopped${NC}"
-    fi
-    
-    if systemctl is-active --quiet sshd; then
-        echo -e "${CYAN}│${NC} ${GREEN}●${NC} SSH Service:        ${GREEN}Running${NC}"
-    else
-        echo -e "${CYAN}│${NC} ${RED}●${NC} SSH Service:        ${RED}Stopped${NC}"
-    fi
-    
-    # Active connections
-    CONNS=$(ss -tn | grep -c ':22\|:5300' 2>/dev/null || echo 0)
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Active Connections: ${YELLOW}$CONNS${NC}"
-    
-    # Memory usage
-    MEM_USED=$(free -h | awk '/^Mem:/{print $3}')
-    MEM_TOTAL=$(free -h | awk '/^Mem:/{print $2}')
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Memory:             ${YELLOW}$MEM_USED / $MEM_TOTAL${NC}"
-    
-    # Disk usage
-    DISK=$(df -h / | awk 'NR==2{printf "%s / %s (%s)", $3, $2, $5}')
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Disk:               ${YELLOW}$DISK${NC}"
-    
-    # CPU load
-    CPU=$(uptime | awk -F 'load average:' '{print $2}')
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} CPU Load:           ${YELLOW}$CPU${NC}"
-    
-    # Uptime
-    UP=$(uptime -p)
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Uptime:             ${YELLOW}$UP${NC}"
-    
-    echo -e "${CYAN}└─────────────────────────────────────────────────────────────┘${NC}"
-}
 
-show_menu() {
+    echo -e "${PURPLE}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${PURPLE}║${YELLOW}${BOLD}        ELITE-X v3.3.1 - FALCON ENHANCED (FULL)      ${PURPLE}║${NC}"
+    echo -e "${PURPLE}╠════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${PURPLE}║${WHITE}  NS        :${GREEN} $SUB${NC}"
+    echo -e "${PURPLE}║${WHITE}  IP        :${GREEN} $IP${NC}"
+    echo -e "${PURPLE}║${WHITE}  Location  :${GREEN} $LOCATION (MTU: $MTU)${NC}"
+    echo -e "${PURPLE}║${WHITE}  RAM       :${GREEN} $RAM${NC}"
+    echo -e "${PURPLE}║${WHITE}  Services  : DNS:$DNS PRX:$PRX BW:$BW 3PX:$P3X${NC}"
+    echo -e "${PURPLE}║${WHITE}  Users     :${GREEN} $TOTAL_USERS total, $ONLINE online${NC}"
+    echo -e "${PURPLE}║${WHITE}  Total BW  :${YELLOW} ${TOTAL_BW} GB${NC}"
+    echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${NC}        ${WHITE}${BOLD}🎮 MAIN MENU${NC}                     ${BLUE}║${NC}"
-    echo -e "${BLUE}╠════════════════════════════════════════╣${NC}"
-    echo -e "${BLUE}║${NC}  ${CYAN}[1]${NC} ${WHITE}Server Status${NC}                      ${BLUE}║${NC}"
-    echo -e "${BLUE}║${NC}  ${CYAN}[2]${NC} ${WHITE}Create New User${NC}                    ${BLUE}║${NC}"
-    echo -e "${BLUE}║${NC}  ${CYAN}[3]${NC} ${WHITE}List All Users${NC}                     ${BLUE}║${NC}"
-    echo -e "${BLUE}║${NC}  ${CYAN}[4]${NC} ${WHITE}Show User Details${NC}                  ${BLUE}║${NC}"
-    echo -e "${BLUE}║${NC}  ${CYAN}[5]${NC} ${WHITE}Delete User${NC}                        ${BLUE}║${NC}"
-    echo -e "${BLUE}║${NC}  ${CYAN}[6]${NC} ${WHITE}Show Public Key${NC}                    ${BLUE}║${NC}"
-    echo -e "${BLUE}║${NC}  ${CYAN}[7]${NC} ${WHITE}Show Server Info${NC}                   ${BLUE}║${NC}"
-    echo -e "${BLUE}║${NC}  ${CYAN}[8]${NC} ${WHITE}Service Control${NC}                    ${BLUE}║${NC}"
-    echo -e "${BLUE}║${NC}  ${CYAN}[9]${NC} ${WHITE}View Logs${NC}                          ${BLUE}║${NC}"
-    echo -e "${BLUE}║${NC}  ${CYAN}[10]${NC} ${WHITE}Restart All Services${NC}              ${BLUE}║${NC}"
-    echo -e "${BLUE}║${NC}  ${CYAN}[11]${NC} ${WHITE}Network Monitor${NC}                    ${BLUE}║${NC}"
-    echo -e "${BLUE}║${NC}  ${CYAN}[12]${NC} ${WHITE}System Info${NC}                        ${BLUE}║${NC}"
-    echo -e "${BLUE}║${NC}  ${CYAN}[0]${NC} ${RED}Exit${NC}                               ${BLUE}║${NC}"
-    echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
 }
 
-service_control() {
-    echo -e "\n${CYAN}╔════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}       ${WHITE}${BOLD}⚡ SERVICE CONTROL${NC}                ${CYAN}║${NC}"
-    echo -e "${CYAN}╠════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC}  ${YELLOW}[1]${NC} ${WHITE}Start SlowDNS${NC}                     ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  ${YELLOW}[2]${NC} ${WHITE}Stop SlowDNS${NC}                      ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  ${YELLOW}[3]${NC} ${WHITE}Restart SlowDNS${NC}                   ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  ${YELLOW}[4]${NC} ${WHITE}Start EDNS Proxy${NC}                  ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  ${YELLOW}[5]${NC} ${WHITE}Stop EDNS Proxy${NC}                   ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  ${YELLOW}[6]${NC} ${WHITE}Restart SSH${NC}                        ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  ${YELLOW}[0]${NC} ${RED}Back${NC}                               ${CYAN}║${NC}"
-    echo -e "${CYAN}╚════════════════════════════════════════╝${NC}"
-    read -p "$(echo -e "${WHITE}Select option: ${NC}")" choice
-    
-    case $choice in
-        1) systemctl start server-sldns; echo -e "${GREEN}[✓] SlowDNS started${NC}";;
-        2) systemctl stop server-sldns; echo -e "${RED}[✓] SlowDNS stopped${NC}";;
-        3) systemctl restart server-sldns; echo -e "${YELLOW}[✓] SlowDNS restarted${NC}";;
-        4) systemctl start edns-proxy; echo -e "${GREEN}[✓] EDNS Proxy started${NC}";;
-        5) systemctl stop edns-proxy; echo -e "${RED}[✓] EDNS Proxy stopped${NC}";;
-        6) systemctl restart sshd; echo -e "${YELLOW}[✓] SSH restarted${NC}";;
-        0) return;;
-        *) echo -e "${RED}Invalid option${NC}";;
-    esac
-    sleep 2
+settings_menu() {
+    while true; do
+        clear
+        autoban=$(cat "$AUTOBAN_FLAG" 2>/dev/null || echo "0")
+        [ "$autoban" = "1" ] && ABSTATUS="${RED}ENABLED${NC}" || ABSTATUS="${GREEN}DISABLED${NC}"
+
+        echo -e "${PURPLE}╔════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${PURPLE}║${YELLOW}${BOLD}                 SETTINGS MENU                     ${PURPLE}║${NC}"
+        echo -e "${PURPLE}╠════════════════════════════════════════════════════════════════╣${NC}"
+        echo -e "${PURPLE}║${WHITE}  [1] Change MTU  [2] Speed Optimize  [3] Clean Cache${NC}"
+        echo -e "${PURPLE}║${WHITE}  [4] Edit Banner [5] Reset Banner     [6] Traffic Stats${NC}"
+        echo -e "${PURPLE}║${WHITE}  [7] Reset All BW [8] Toggle Auto-Ban ($ABSTATUS)${WHITE}${NC}"
+        echo -e "${PURPLE}║${WHITE}  [9] Restart All  [10] Reboot VPS      [11] Uninstall${NC}"
+        echo -e "${PURPLE}║${WHITE}  [12] Reinstall 3Proxy${NC}"
+        echo -e "${PURPLE}║${WHITE}  [0] Back${NC}"
+        echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════╝${NC}"
+        read -p "$(echo -e $GREEN"Option: "$NC)" ch
+
+        case $ch in
+            1)
+                read -p "New MTU (1000-5000): " mtu
+                [[ "$mtu" =~ ^[0-9]+$ ]] && [ $mtu -ge 1000 ] && [ $mtu -le 5000 ] && {
+                    echo "$mtu" > /etc/elite-x/mtu
+                    sed -i "s/-mtu [0-9]*/-mtu $mtu/" /etc/systemd/system/dnstt-elite-x.service
+                    systemctl daemon-reload
+                    systemctl restart dnstt-elite-x dnstt-elite-x-proxy
+                    echo -e "${GREEN}✅ MTU updated${NC}"
+                } || echo -e "${RED}Invalid${NC}"
+                read -p "Press Enter..."
+                ;;
+            2)
+                sysctl -w net.core.default_qdisc=fq >/dev/null 2>&1
+                sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1
+                echo -e "${GREEN}✅ Speed optimized${NC}"
+                read -p "Press Enter..."
+                ;;
+            3) apt clean; sync && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null; echo -e "${GREEN}✅ Cleaned${NC}"; read -p "Press Enter..." ;;
+            4) nano /etc/elite-x/banner/ssh-banner; systemctl restart sshd; echo -e "${GREEN}✅ Banner updated${NC}"; read -p "Press Enter..." ;;
+            5) cp /etc/elite-x/banner/default /etc/elite-x/banner/ssh-banner; systemctl restart sshd; echo -e "${GREEN}✅ Reset${NC}"; read -p "Press Enter..." ;;
+            6)
+                iface=$(ip route | grep default | awk '{print $5}' | head -1)
+                rx=$(cat /sys/class/net/$iface/statistics/rx_bytes 2>/dev/null || echo 0)
+                tx=$(cat /sys/class/net/$iface/statistics/tx_bytes 2>/dev/null || echo 0)
+                echo -e "RX: $(echo "scale=2; $rx/1073741824" | bc) GB"
+                echo -e "TX: $(echo "scale=2; $tx/1073741824" | bc) GB"
+                read -p "Press Enter..."
+                ;;
+            7)
+                for f in "$BW_DIR"/*.usage; do [ -f "$f" ] && echo "0" > "$f"; done
+                for u in "$UD"/*; do [ -f "$u" ] && usermod -U "$(basename "$u")" 2>/dev/null; done
+                echo -e "${GREEN}✅ All bandwidth reset${NC}"
+                read -p "Press Enter..."
+                ;;
+            8)
+                [ "$autoban" = "1" ] && echo "0" > "$AUTOBAN_FLAG" || echo "1" > "$AUTOBAN_FLAG"
+                systemctl restart elite-x-connmon 2>/dev/null
+                echo -e "${GREEN}✅ Toggled${NC}"
+                read -p "Press Enter..."
+                ;;
+            9)
+                systemctl restart dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon 3proxy-elite sshd 2>/dev/null
+                echo -e "${GREEN}✅ Restarted${NC}"
+                read -p "Press Enter..."
+                ;;
+            10) read -p "Reboot? (y/n): " c; [ "$c" = "y" ] && reboot ;;
+            11)
+                read -p "Type 'YES' to confirm uninstall: " c
+                [ "$c" = "YES" ] && {
+                    for u in "$UD"/*; do
+                        [ -f "$u" ] && { un=$(basename "$u"); pkill -u "$un" 2>/dev/null; userdel -r "$un" 2>/dev/null; }
+                    done
+                    for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon 3proxy-elite; do
+                        systemctl stop "$s" 2>/dev/null; systemctl disable "$s" 2>/dev/null
+                    done
+                    rm -rf /etc/systemd/system/{dnstt-elite-x*,elite-x*,3proxy-elite*}
+                    rm -rf /etc/dnstt /etc/elite-x /var/run/elite-x /tmp/3proxy*
+                    rm -f /usr/local/bin/{dnstt-*,elite-x*,3proxy}
+                    sed -i '/^Banner/d' /etc/ssh/sshd_config
+                    systemctl restart sshd 2>/dev/null
+                    rm -f /etc/profile.d/elite-x-dashboard.sh
+                    sed -i '/elite-x/d' ~/.bashrc 2>/dev/null
+                    systemctl daemon-reload
+                    echo -e "${GREEN}✅ Uninstalled!${NC}"
+                    exit 0
+                }
+                read -p "Press Enter..."
+                ;;
+            12)
+                systemctl stop 3proxy-elite 2>/dev/null
+                rm -f "$THREEPROXY_BIN"
+                install_3proxy
+                read -p "Press Enter..."
+                ;;
+            0) return ;;
+        esac
+    done
 }
 
-network_monitor() {
-    clear
-    echo -e "${CYAN}╔════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}       ${WHITE}${BOLD}📡 NETWORK MONITOR${NC}               ${CYAN}║${NC}"
-    echo -e "${CYAN}╚════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${YELLOW}Active Connections:${NC}"
-    ss -tunap | grep -E ':22|:53|:5300|:8080' | column -t
-    echo ""
-    echo -e "${YELLOW}Listening Ports:${NC}"
-    ss -tunlp | grep -E ':22|:53|:5300|:8080'
-    echo ""
-    read -p "Press Enter to continue..."
+main_menu() {
+    while true; do
+        show_dashboard
+
+        echo -e "${PURPLE}╔════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${PURPLE}║${GREEN}${BOLD}               MAIN MENU v3.3.1                     ${PURPLE}║${NC}"
+        echo -e "${PURPLE}╠════════════════════════════════════════════════════════════════╣${NC}"
+        echo -e "${PURPLE}║${WHITE}  [1] Create User   [2] List Users      [3] User Details${NC}"
+        echo -e "${PURPLE}║${WHITE}  [4] Renew User    [5] Set Conn Limit   [6] Set BW Limit${NC}"
+        echo -e "${PURPLE}║${WHITE}  [7] Reset BW      [8] Lock User        [9] Unlock User${NC}"
+        echo -e "${PURPLE}║${WHITE}  [10] Delete User  [11] Deleted List     [S] Settings${NC}"
+        echo -e "${PURPLE}║${WHITE}  [0] Exit${NC}"
+        echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════╝${NC}"
+        read -p "$(echo -e $GREEN"Option: "$NC)" ch
+
+        case $ch in
+            1) elite-x-user add; read -p "Press Enter..." ;;
+            2) elite-x-user list; read -p "Press Enter..." ;;
+            3) elite-x-user details; read -p "Press Enter..." ;;
+            4) elite-x-user renew; read -p "Press Enter..." ;;
+            5) elite-x-user setlimit; read -p "Press Enter..." ;;
+            6) elite-x-user setbw; read -p "Press Enter..." ;;
+            7) elite-x-user resetdata; read -p "Press Enter..." ;;
+            8) elite-x-user lock; read -p "Press Enter..." ;;
+            9) elite-x-user unlock; read -p "Press Enter..." ;;
+            10) elite-x-user del; read -p "Press Enter..." ;;
+            11) elite-x-user deleted; read -p "Press Enter..." ;;
+            [Ss]) settings_menu ;;
+            0) echo -e "${GREEN}Goodbye!${NC}"; exit 0 ;;
+            *) echo -e "${RED}Invalid${NC}"; read -p "Press Enter..." ;;
+        esac
+    done
 }
 
-system_info() {
-    clear
-    echo -e "${CYAN}╔════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}         ${WHITE}${BOLD}💻 SYSTEM INFO${NC}                  ${CYAN}║${NC}"
-    echo -e "${CYAN}╚════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${YELLOW}OS:${NC} $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
-    echo -e "${YELLOW}Kernel:${NC} $(uname -r)"
-    echo -e "${YELLOW}Architecture:${NC} $(uname -m)"
-    echo -e "${YELLOW}CPU:${NC} $(grep 'model name' /proc/cpuinfo | head -1 | cut -d':' -f2)"
-    echo -e "${YELLOW}CPU Cores:${NC} $(nproc)"
-    echo -e "${YELLOW}Memory:${NC} $(free -h | awk '/^Mem:/{print $2}')"
-    echo -e "${YELLOW}Disk:${NC} $(df -h / | awk 'NR==2{print $2}')"
-    echo -e "${YELLOW}IPv6 Status:${NC} $(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || echo "Disabled")"
-    echo ""
-    echo -e "${YELLOW}UDP Buffer Settings:${NC}"
-    sysctl net.core.rmem_max net.core.wmem_max 2>/dev/null
-    echo ""
-    read -p "Press Enter to continue..."
+main_menu
+MENUEOF
+    chmod +x /usr/local/bin/elite-x
 }
 
-# Main loop
-while true; do
-    show_header
-    show_status
-    show_menu
-    read -p "$(echo -e "${WHITE}${BOLD}Select option [0-12]: ${NC}")" choice
-    
-    case $choice in
-        1) show_status; read -p "Press Enter to continue...";;
-        2) slowdns-user create; read -p "Press Enter to continue...";;
-        3) slowdns-user list; read -p "Press Enter to continue...";;
-        4) slowdns-user details; read -p "Press Enter to continue...";;
-        5) slowdns-user delete; read -p "Press Enter to continue...";;
-        6) 
-            echo -e "\n${CYAN}╔════════════════════════════════════════╗${NC}"
-            echo -e "${CYAN}║${NC}         ${WHITE}${BOLD}🔑 PUBLIC KEY${NC}                  ${CYAN}║${NC}"
-            echo -e "${CYAN}╚════════════════════════════════════════╝${NC}"
-            echo -e "${YELLOW}$PUBLIC_KEY${NC}"
-            read -p "Press Enter to continue..."
-            ;;
-        7)
-            echo -e "\n${CYAN}╔════════════════════════════════════════╗${NC}"
-            echo -e "${CYAN}║${NC}        ${WHITE}${BOLD}📋 SERVER INFO${NC}                  ${CYAN}║${NC}"
-            echo -e "${CYAN}╠════════════════════════════════════════╣${NC}"
-            echo -e "${CYAN}║${NC} ${YELLOW}Server IP:${NC}    ${WHITE}$SERVER_IP${NC}"
-            echo -e "${CYAN}║${NC} ${YELLOW}SSH Port:${NC}     ${WHITE}22${NC}"
-            echo -e "${CYAN}║${NC} ${YELLOW}SlowDNS Port:${NC} ${WHITE}5300${NC}"
-            echo -e "${CYAN}║${NC} ${YELLOW}EDNS Port:${NC}    ${WHITE}53${NC}"
-            echo -e "${CYAN}║${NC} ${YELLOW}Nameserver:${NC}   ${WHITE}$NS${NC}"
-            echo -e "${CYAN}║${NC} ${YELLOW}Dashboard:${NC}    ${WHITE}http://$SERVER_IP:8080${NC}"
-            echo -e "${CYAN}╚════════════════════════════════════════╝${NC}"
-            read -p "Press Enter to continue..."
-            ;;
-        8) service_control;;
-        9)
-            clear
-            echo -e "${CYAN}╔════════════════════════════════════════╗${NC}"
-            echo -e "${CYAN}║${NC}          ${WHITE}${BOLD}📋 SERVICE LOGS${NC}               ${CYAN}║${NC}"
-            echo -e "${CYAN}╚════════════════════════════════════════╝${NC}"
-            journalctl -u server-sldns --no-pager -n 30
-            read -p "Press Enter to continue..."
-            ;;
-        10)
-            systemctl restart server-sldns edns-proxy
-            echo -e "${GREEN}[✓] All services restarted${NC}"
-            sleep 2
-            ;;
-        11) network_monitor;;
-        12) system_info;;
-        0)
-            echo -e "\n${GREEN}👋 Goodbye!${NC}"
-            exit 0
-            ;;
-        *)
-            echo -e "${RED}Invalid option!${NC}"
-            sleep 1
-            ;;
-    esac
-done
-PANELSCRIPT
-    
-    chmod +x /usr/local/bin/slowdns-panel
-    ln -sf /usr/local/bin/slowdns-panel /usr/bin/slowdns-panel 2>/dev/null
-    
-    print_success "Terminal panel created (run 'slowdns-panel')"
-    print_step_end
-}
+# ═══════════════════════════════════════════════════════════════
+# MAIN INSTALLATION
+# ═══════════════════════════════════════════════════════════════
+show_banner
+echo -e "${YELLOW}╔═══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${YELLOW}║${GREEN}                    ACTIVATION REQUIRED                          ${YELLOW}║${NC}"
+echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════════╝${NC}"
+read -p "$(echo -e $CYAN"Activation Key: "$NC)" ACTIVATION_INPUT
 
-# ============================================================================
-# CREATE WEB DASHBOARD
-# ============================================================================
-create_dashboard() {
-    print_step "6"
-    print_info "Creating Web Management Dashboard"
-    
-    mkdir -p /etc/slowdns/dashboard
-    
-    # Create dashboard HTML
-    cat > /etc/slowdns/dashboard/index.html << 'HTMLEOF'
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ELITE-X8 SlowDNS Dashboard</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        .container { max-width: 1200px; margin: 0 auto; }
-        .header {
-            background: rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 30px;
-            margin-bottom: 30px;
-            border: 1px solid rgba(255,255,255,0.2);
-        }
-        .header h1 { color: white; font-size: 2.5em; margin-bottom: 10px; }
-        .header p { color: rgba(255,255,255,0.8); font-size: 1.1em; }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        .stat-card {
-            background: rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            padding: 20px;
-            border: 1px solid rgba(255,255,255,0.2);
-            color: white;
-        }
-        .stat-card h3 { font-size: 0.9em; color: rgba(255,255,255,0.7); margin-bottom: 10px; }
-        .stat-card .value { font-size: 2em; font-weight: bold; }
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 8px;
-        }
-        .status-online { background: #48bb78; }
-        .status-offline { background: #f56565; }
-        .controls {
-            background: rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            padding: 20px;
-            border: 1px solid rgba(255,255,255,0.2);
-            margin-bottom: 20px;
-        }
-        .button {
-            background: rgba(255,255,255,0.2);
-            border: 1px solid rgba(255,255,255,0.3);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 10px;
-            cursor: pointer;
-            margin: 5px;
-            font-size: 1em;
-            transition: all 0.3s;
-        }
-        .button:hover { background: rgba(255,255,255,0.3); }
-        .button.start { background: rgba(72, 187, 120, 0.5); }
-        .button.stop { background: rgba(245, 101, 101, 0.5); }
-        .button.restart { background: rgba(236, 201, 75, 0.5); }
-        .logs {
-            background: rgba(0,0,0,0.5);
-            border-radius: 15px;
-            padding: 20px;
-            color: #0f0;
-            font-family: monospace;
-            height: 300px;
-            overflow-y: auto;
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-        .public-key {
-            background: rgba(0,0,0,0.3);
-            border-radius: 10px;
-            padding: 15px;
-            color: #ffd700;
-            font-family: monospace;
-            word-break: break-all;
-            margin-top: 10px;
-        }
-        .user-section {
-            background: rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            padding: 20px;
-            border: 1px solid rgba(255,255,255,0.2);
-            margin-bottom: 20px;
-        }
-        .user-section h3 { color: white; margin-bottom: 15px; }
-        input[type="text"] {
-            background: rgba(255,255,255,0.2);
-            border: 1px solid rgba(255,255,255,0.3);
-            color: white;
-            padding: 10px;
-            border-radius: 10px;
-            width: 100%;
-            margin-bottom: 10px;
-        }
-        input[type="text"]::placeholder { color: rgba(255,255,255,0.5); }
-        .user-card {
-            background: rgba(255,255,255,0.05);
-            border-radius: 10px;
-            padding: 15px;
-            margin: 10px 0;
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🚀 ELITE-X8 SlowDNS Dashboard</h1>
-            <p>Advanced DNS Tunnel Management System V2</p>
-        </div>
-        
-        <div class="stats-grid">
-            <div class="stat-card">
-                <h3>SERVER STATUS</h3>
-                <div class="value" id="serverStatus">
-                    <span class="status-indicator status-online"></span>Online
-                </div>
-            </div>
-            <div class="stat-card">
-                <h3>SLOWDNS PORT</h3>
-                <div class="value">5300</div>
-            </div>
-            <div class="stat-card">
-                <h3>SSH PORT</h3>
-                <div class="value">22</div>
-            </div>
-            <div class="stat-card">
-                <h3>ACTIVE CONNECTIONS</h3>
-                <div class="value" id="connections">0</div>
-            </div>
-        </div>
-        
-        <div class="controls">
-            <h3 style="color: white; margin-bottom: 15px;">🎮 Service Controls</h3>
-            <button class="button start" onclick="controlService('start')">▶ Start All</button>
-            <button class="button stop" onclick="controlService('stop')">⏹ Stop All</button>
-            <button class="button restart" onclick="controlService('restart')">🔄 Restart All</button>
-            <button class="button" onclick="refreshStatus()">🔄 Refresh</button>
-        </div>
-        
-        <div class="user-section">
-            <h3>👤 User Management</h3>
-            <input type="text" id="newUsername" placeholder="Enter username to create...">
-            <button class="button start" onclick="createUser()">Create User</button>
-            <button class="button restart" onclick="listUsers()">List Users</button>
-            <div id="userList"></div>
-        </div>
-        
-        <div class="controls">
-            <h3 style="color: white; margin-bottom: 15px;">🔑 Public Key</h3>
-            <div class="public-key" id="publicKey">Loading...</div>
-        </div>
-        
-        <div class="controls">
-            <h3 style="color: white; margin-bottom: 15px;">📋 Service Logs</h3>
-            <div class="logs" id="logs"></div>
-        </div>
-    </div>
-    
-    <script>
-        function refreshStatus() {
-            fetch('/api/status')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('connections').textContent = data.connections || 0;
-                    document.getElementById('logs').innerHTML = data.logs || 'No logs';
-                    document.getElementById('publicKey').textContent = data.publicKey || 'N/A';
-                })
-                .catch(err => console.error('Error:', err));
-        }
-        
-        function controlService(action) {
-            fetch('/api/control', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({action: action})
-            })
-            .then(response => response.json())
-            .then(data => {
-                alert(data.message);
-                refreshStatus();
-            })
-            .catch(err => alert('Error: ' + err));
-        }
-        
-        function createUser() {
-            const username = document.getElementById('newUsername').value;
-            if (!username) { alert('Enter username'); return; }
-            fetch('/api/users/create', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({username: username})
-            })
-            .then(response => response.json())
-            .then(data => {
-                alert(JSON.stringify(data, null, 2));
-                document.getElementById('newUsername').value = '';
-                listUsers();
-            })
-            .catch(err => alert('Error: ' + err));
-        }
-        
-        function listUsers() {
-            fetch('/api/users/list')
-                .then(response => response.json())
-                .then(data => {
-                    let html = '<h4 style="color:white;margin-top:15px;">Registered Users:</h4>';
-                    if (data.users && data.users.length > 0) {
-                        data.users.forEach(u => {
-                            html += `<div class="user-card" style="color:white;">
-                                <strong>${u.username}</strong> - Created: ${u.created}
-                                <br>Password: ${u.password}
-                                <br>Public Key: ${u.public_key}
-                                <br>NS: ${u.ns}
-                            </div>`;
-                        });
-                    } else {
-                        html += '<p style="color:rgba(255,255,255,0.7);">No users found</p>';
-                    }
-                    document.getElementById('userList').innerHTML = html;
-                });
-        }
-        
-        setInterval(refreshStatus, 5000);
-        refreshStatus();
-        listUsers();
-    </script>
-</body>
-</html>
-HTMLEOF
-    
-    # Create advanced API server
-    cat > /usr/local/bin/slowdns-api << 'APIEOF'
-#!/usr/bin/env python3
-import http.server
-import json
-import subprocess
-import os
-import sys
-import random
-import string
-from urllib.parse import urlparse
-
-USERS_DIR = "/etc/slowdns/users"
-PUBLIC_KEY = ""
-SERVER_IP = ""
-NS = ""
-
-# Load config
-try:
-    with open('/etc/slowdns/server.pub', 'r') as f:
-        PUBLIC_KEY = f.read().strip()
-except:
-    PUBLIC_KEY = "N/A"
-
-try:
-    with open('/etc/slowdns/ns.conf', 'r') as f:
-        NS = f.read().strip()
-except:
-    NS = "dns.google.com"
-
-try:
-    result = subprocess.run(['curl', '-s', '--connect-timeout', '3', 'ifconfig.me'], 
-                          capture_output=True, text=True, timeout=5)
-    SERVER_IP = result.stdout.strip()
-except:
-    try:
-        result = subprocess.run(['hostname', '-I'], capture_output=True, text=True)
-        SERVER_IP = result.stdout.strip().split()[0]
-    except:
-        SERVER_IP = "127.0.0.1"
-
-class SlowDNSAPI(http.server.BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        pass  # Suppress logging
-    
-    def send_json(self, data, status=200):
-        self.send_response(status)
-        self.send_header('Content-type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.end_headers()
-        self.wfile.write(json.dumps(data, indent=2).encode())
-    
-    def do_GET(self):
-        if self.path == '/':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            with open('/etc/slowdns/dashboard/index.html', 'rb') as f:
-                self.wfile.write(f.read())
-        
-        elif self.path == '/api/status':
-            connections = 0
-            try:
-                result = subprocess.run(['ss', '-tn'], capture_output=True, text=True)
-                connections = len([l for l in result.stdout.split('\n') if ':22' in l or ':5300' in l])
-            except:
-                pass
-            
-            logs = "No logs available"
-            try:
-                result = subprocess.run(['journalctl', '-u', 'server-sldns', '--no-pager', '-n', '20'], 
-                                      capture_output=True, text=True, timeout=5)
-                if result.stdout:
-                    logs = result.stdout
-            except:
-                pass
-            
-            status = {
-                'connections': connections,
-                'logs': logs,
-                'publicKey': PUBLIC_KEY,
-                'server_ip': SERVER_IP,
-                'ns': NS,
-                'slowdns_status': 'running' if os.system('systemctl is-active --quiet server-sldns') == 0 else 'stopped',
-                'edns_status': 'running' if os.system('systemctl is-active --quiet edns-proxy') == 0 else 'stopped'
-            }
-            self.send_json(status)
-        
-        elif self.path == '/api/users/list':
-            users = []
-            if os.path.exists(USERS_DIR):
-                for f in os.listdir(USERS_DIR):
-                    if f.endswith('.json'):
-                        try:
-                            with open(os.path.join(USERS_DIR, f), 'r') as jf:
-                                user_data = json.load(jf)
-                                users.append({
-                                    'username': user_data.get('username', ''),
-                                    'password': user_data.get('password', ''),
-                                    'created': user_data.get('created', ''),
-                                    'public_key': user_data.get('public_key', PUBLIC_KEY),
-                                    'ns': user_data.get('nameserver', NS),
-                                    'server_ip': user_data.get('server_ip', SERVER_IP)
-                                })
-                        except:
-                            pass
-            self.send_json({'users': users})
-        
-        else:
-            self.send_json({'error': 'Not found'}, 404)
-    
-    def do_POST(self):
-        content_length = int(self.headers.get('Content-Length', 0))
-        post_data = {}
-        if content_length > 0:
-            try:
-                post_data = json.loads(self.rfile.read(content_length))
-            except:
-                pass
-        
-        if self.path == '/api/control':
-            action = post_data.get('action', '')
-            message = "Action performed"
-            try:
-                if action == 'start':
-                    subprocess.run(['systemctl', 'start', 'server-sldns', 'edns-proxy'])
-                    message = "Services started"
-                elif action == 'stop':
-                    subprocess.run(['systemctl', 'stop', 'server-sldns', 'edns-proxy'])
-                    message = "Services stopped"
-                elif action == 'restart':
-                    subprocess.run(['systemctl', 'restart', 'server-sldns', 'edns-proxy'])
-                    message = "Services restarted"
-            except Exception as e:
-                message = f"Error: {str(e)}"
-            self.send_json({'message': message})
-        
-        elif self.path == '/api/users/create':
-            username = post_data.get('username', '')
-            if not username:
-                self.send_json({'error': 'Username required'}, 400)
-                return
-            
-            user_file = os.path.join(USERS_DIR, f"{username}.json")
-            if os.path.exists(user_file):
-                self.send_json({'error': 'User already exists'}, 400)
-                return
-            
-            # Generate password
-            password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
-            
-            # Create system user
-            try:
-                subprocess.run(['useradd', '-m', '-s', '/bin/bash', username], 
-                             capture_output=True, timeout=5)
-                subprocess.run(['chpasswd'], input=f"{username}:{password}".encode(), 
-                             capture_output=True, timeout=5)
-            except:
-                pass
-            
-            # Save user data
-            user_data = {
-                'username': username,
-                'password': password,
-                'server_ip': SERVER_IP,
-                'ssh_port': '22',
-                'slowdns_port': '5300',
-                'edns_port': '53',
-                'public_key': PUBLIC_KEY,
-                'nameserver': NS,
-                'created': subprocess.run(['date', '+%Y-%m-%d %H:%M:%S'], 
-                                        capture_output=True, text=True).stdout.strip(),
-                'status': 'active'
-            }
-            
-            os.makedirs(USERS_DIR, exist_ok=True)
-            with open(user_file, 'w') as f:
-                json.dump(user_data, f, indent=2)
-            
-            self.send_json({
-                'message': 'User created successfully',
-                'user': user_data
-            })
-
-if __name__ == '__main__':
-    os.makedirs(USERS_DIR, exist_ok=True)
-    server = http.server.HTTPServer(('0.0.0.0', 8080), SlowDNSAPI)
-    print("SlowDNS API Server running on port 8080")
-    server.serve_forever()
-APIEOF
-    
-    chmod +x /usr/local/bin/slowdns-api
-    
-    # Create dashboard service
-    cat > /etc/systemd/system/slowdns-dashboard.service << EOF
-[Unit]
-Description=SlowDNS Dashboard API
-After=network.target server-sldns.service edns-proxy.service
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/python3 /usr/local/bin/slowdns-api
-Restart=always
-User=root
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    
-    print_success "Web dashboard created"
-    print_step_end
-}
-
-# ============================================================================
-# CREATE SERVICES
-# ============================================================================
-create_services() {
-    print_step "7"
-    print_info "Creating System Services"
-    
-    # SlowDNS Service
-    cat > /etc/systemd/system/server-sldns.service << EOF
-[Unit]
-Description=ELITE-X8 SlowDNS Server
-After=network.target sshd.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/etc/slowdns/dnstt-server -udp :$SLOWDNS_PORT -mtu 1200 -privkey-file /etc/slowdns/server.key $NAMESERVER 127.0.0.1:$SSHD_PORT
-Restart=always
-RestartSec=5
-User=root
-LimitNOFILE=65536
-LimitCORE=infinity
-Environment="GODEBUG=netdns=go"
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    
-    # EDNS Proxy Service
-    cat > /etc/systemd/system/edns-proxy.service << EOF
-[Unit]
-Description=EDNS Proxy for SlowDNS (IPv4 Only, Multi-core)
-After=server-sldns.service
-Requires=server-sldns.service
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/edns-proxy
-Restart=always
-RestartSec=3
-User=root
-LimitNOFILE=65536
-LimitCORE=infinity
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    
-    # Save nameserver
-    echo "$NAMESERVER" > /etc/slowdns/ns.conf
-    
-    print_success "Service files created"
-    print_step_end
-}
-
-# ============================================================================
-# CONFIGURE FIREWALL
-# ============================================================================
-configure_firewall() {
-    print_step "8"
-    print_info "Configuring Firewall Rules (IPv4 Only)"
-    
-    # Stop IPv6 services
-    systemctl stop systemd-resolved 2>/dev/null
-    fuser -k 53/udp 2>/dev/null
-    fuser -k 53/tcp 2>/dev/null
-    
-    # Configure iptables (IPv4 only)
-    iptables -F
-    iptables -X
-    iptables -t nat -F
-    
-    iptables -P INPUT ACCEPT
-    iptables -P FORWARD ACCEPT
-    iptables -P OUTPUT ACCEPT
-    
-    iptables -A INPUT -i lo -j ACCEPT
-    iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-    iptables -A INPUT -p tcp --dport $SSHD_PORT -j ACCEPT
-    iptables -A INPUT -p udp --dport $SLOWDNS_PORT -j ACCEPT
-    iptables -A INPUT -p udp --dport 53 -j ACCEPT
-    iptables -A INPUT -p tcp --dport $DASHBOARD_PORT -j ACCEPT
-    iptables -A INPUT -p icmp -j ACCEPT
-    
-    # Block IPv6 traffic via ip6tables
-    ip6tables -P INPUT DROP 2>/dev/null
-    ip6tables -P OUTPUT DROP 2>/dev/null
-    ip6tables -P FORWARD DROP 2>/dev/null
-    
-    print_success "Firewall configured (IPv4 only)"
-    print_step_end
-}
-
-# ============================================================================
-# START SERVICES
-# ============================================================================
-start_services() {
-    print_step "9"
-    print_info "Starting All Services"
-    
-    systemctl daemon-reload
-    
-    # Start SlowDNS
-    systemctl enable server-sldns > /dev/null 2>&1
-    systemctl start server-sldns
-    sleep 2
-    
-    if systemctl is-active --quiet server-sldns; then
-        print_success "SlowDNS service started"
-    else
-        print_warning "Starting SlowDNS in background mode"
-        /etc/slowdns/dnstt-server -udp :$SLOWDNS_PORT -mtu 1200 -privkey-file /etc/slowdns/server.key $NAMESERVER 127.0.0.1:$SSHD_PORT &
-    fi
-    
-    # Start EDNS Proxy
-    systemctl enable edns-proxy > /dev/null 2>&1
-    systemctl start edns-proxy
-    sleep 2
-    
-    if systemctl is-active --quiet edns-proxy; then
-        print_success "EDNS Proxy service started (IPv4 only, SO_REUSEPORT enabled)"
-    else
-        print_warning "Starting EDNS Proxy in background mode"
-        /usr/local/bin/edns-proxy &
-    fi
-    
-    # Start Dashboard
-    systemctl enable slowdns-dashboard > /dev/null 2>&1
-    systemctl start slowdns-dashboard
-    sleep 2
-    
-    if systemctl is-active --quiet slowdns-dashboard; then
-        print_success "Dashboard service started"
-    else
-        print_warning "Dashboard started in background mode"
-        python3 /usr/local/bin/slowdns-api &
-    fi
-    
-    print_step_end
-}
-
-# ============================================================================
-# SHOW COMPLETION SUMMARY
-# ============================================================================
-show_summary() {
-    print_header "🎉 INSTALLATION COMPLETE"
-    
-    echo -e "${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
-    echo -e "${CYAN}│${NC} ${WHITE}${BOLD}ELITE-X8 SLOWDNS SERVER INFORMATION V2${NC}              ${CYAN}│${NC}"
-    echo -e "${CYAN}├──────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Server IP:      ${WHITE}$SERVER_IP${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} SSH Port:       ${WHITE}$SSHD_PORT${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} SlowDNS Port:   ${WHITE}$SLOWDNS_PORT${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} EDNS Port:      ${WHITE}53${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Web Dashboard:  ${WHITE}http://$SERVER_IP:$DASHBOARD_PORT${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Terminal Panel: ${WHITE}slowdns-panel${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} User Manager:   ${WHITE}slowdns-user${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Nameserver:     ${WHITE}$NAMESERVER${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} IPv6:           ${WHITE}Disabled${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} UDP Buffer:     ${WHITE}20MB Max${NC}"
-    echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
-    
-    # Show public key
-    if [ -f /etc/slowdns/server.pub ]; then
-        echo -e "\n${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
-        echo -e "${CYAN}│${NC} ${WHITE}${BOLD}PUBLIC KEY${NC}                                            ${CYAN}│${NC}"
-        echo -e "${CYAN}├──────────────────────────────────────────────────────────┤${NC}"
-        echo -e "${CYAN}│${NC} ${YELLOW}$(cat /etc/slowdns/server.pub)${NC}"
-        echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
-    fi
-    
-    echo -e "\n${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
-    echo -e "${CYAN}│${NC} ${WHITE}${BOLD}QUICK COMMANDS${NC}                                      ${CYAN}│${NC}"
-    echo -e "${CYAN}├──────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${CYAN}│${NC} ${GREEN}slowdns-panel${NC}          - Open VPS Terminal Panel"
-    echo -e "${CYAN}│${NC} ${GREEN}slowdns-user create${NC}    - Create new user"
-    echo -e "${CYAN}│${NC} ${GREEN}slowdns-user list${NC}      - List all users"
-    echo -e "${CYAN}│${NC} ${GREEN}systemctl status server-sldns${NC}"
-    echo -e "${CYAN}│${NC} ${GREEN}journalctl -u server-sldns -f${NC}"
-    echo -e "${CYAN}│${NC} ${GREEN}ss -ulpn | grep ':53\|:5300'${NC}"
-    echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
-    
-    echo -e "\n${PURPLE}╔══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${NC}    ${WHITE}🎯 ELITE-X8 SLOWDNS V2 INSTALLED SUCCESSFULLY!${NC}           ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC}    ${WHITE}⚡ Web Dashboard: http://$SERVER_IP:$DASHBOARD_PORT${NC}          ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC}    ${WHITE}💻 Terminal Panel: slowdns-panel${NC}                          ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC}    ${WHITE}📁 Repository: https://github.com/ELITE-X8/setup.sh${NC}       ${PURPLE}║${NC}"
-    echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════════╝${NC}"
-}
-
-# ============================================================================
-# MAIN FUNCTION
-# ============================================================================
-main() {
-    print_banner
-    
-    # Get nameserver
-    echo -e "${WHITE}${BOLD}Configure Your Nameserver:${NC}"
-    echo -e "${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}Example:${NC} dns.google.com, dns.cloudflare.com            ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}Custom:${NC}  yourdomain.com, ns1.yourserver.com           ${CYAN}│${NC}"
-    echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
-    read -p "$(echo -e "${WHITE}${BOLD}Enter nameserver: ${NC}")" NAMESERVER
-    NAMESERVER=${NAMESERVER:-dns.google.com}
-    
-    # Get server IP
-    SERVER_IP=$(curl -s --connect-timeout 5 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
-    
-    optimize_system
-    check_requirements
-    download_files
-    configure_ssh
-    compile_edns
-    create_user_management
-    create_terminal_panel
-    create_dashboard
-    create_services
-    configure_firewall
-    start_services
-    show_summary
-}
-
-# ============================================================================
-# ERROR HANDLING & EXECUTION
-# ============================================================================
-trap 'echo -e "\n${RED}✗ Installation interrupted!${NC}"; log_message "Installation interrupted"; exit 1' INT
-
-# Initialize log
-echo "=== SLOWDNS INSTALLATION STARTED $(date) ===" > "$LOG_FILE"
-
-if main; then
-    echo "=== INSTALLATION COMPLETED SUCCESSFULLY $(date) ===" >> "$LOG_FILE"
-    exit 0
-else
-    echo "=== INSTALLATION FAILED $(date) ===" >> "$LOG_FILE"
-    echo -e "\n${RED}✗ Installation failed${NC}"
+if [ "$ACTIVATION_INPUT" != "$ACTIVATION_KEY" ] && [ "$ACTIVATION_INPUT" != "Whtsapp +255713-628-668" ]; then
+    echo -e "${RED}❌ Invalid activation key!${NC}"
     exit 1
 fi
+echo -e "${GREEN}✅ Activation successful${NC}"
+sleep 1
+
+set_timezone
+
+echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║${WHITE}                  ENTER YOUR NAMESERVER [NS]                    ${CYAN}║${NC}"
+echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+read -p "$(echo -e $GREEN"Nameserver: "$NC)" TDOMAIN
+
+echo -e "${YELLOW}Select VPS location:${NC}"
+echo -e "  [1] South Africa (MTU 1800)"
+echo -e "  [2] USA (MTU 1500)"
+echo -e "  [3] Europe (MTU 1500)"
+echo -e "  [4] Asia (MTU 1400)"
+echo -e "  [5] Custom MTU"
+read -p "$(echo -e $GREEN"Choice [1]: "$NC)" LOC
+LOC=${LOC:-1}
+case $LOC in
+    2) SEL_LOC="USA"; MTU=1500 ;;
+    3) SEL_LOC="Europe"; MTU=1500 ;;
+    4) SEL_LOC="Asia"; MTU=1400 ;;
+    5) SEL_LOC="Custom"; read -p "MTU: " MTU; [[ ! "$MTU" =~ ^[0-9]+$ ]] && MTU=1800 ;;
+    *) SEL_LOC="South Africa"; MTU=1800 ;;
+esac
+
+echo -e "${YELLOW}🔄 Cleaning previous installation...${NC}"
+for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon elite-x-cleaner elite-x-traffic 3proxy-elite; do
+    systemctl stop "$s" 2>/dev/null || true
+    systemctl disable "$s" 2>/dev/null || true
+done
+pkill -f dnstt-server 2>/dev/null || true
+rm -rf /etc/systemd/system/{dnstt-elite-x*,elite-x*,3proxy-elite*} 2>/dev/null
+rm -rf /etc/dnstt /etc/elite-x /var/run/elite-x 2>/dev/null
+rm -f /usr/local/bin/{dnstt-*,elite-x*,3proxy} 2>/dev/null
+sed -i '/^Banner/d' /etc/ssh/sshd_config 2>/dev/null
+systemctl restart sshd 2>/dev/null || true
+sleep 2
+
+# Create directories
+mkdir -p /etc/elite-x/{banner,users,traffic,deleted,data_usage,connections,banned,traffic_stats,bandwidth/pidtrack,3proxy}
+mkdir -p /var/run/elite-x/bandwidth
+echo "$TDOMAIN" > /etc/elite-x/subdomain
+echo "$SEL_LOC" > /etc/elite-x/location
+echo "$MTU" > /etc/elite-x/mtu
+echo "0" > "$AUTOBAN_FLAG"
+echo "$STATIC_PRIVATE_KEY" > /etc/elite-x/private_key
+echo "$STATIC_PUBLIC_KEY" > /etc/elite-x/public_key
+
+# Create default banner
+cat > /etc/elite-x/banner/default <<'EOF'
+╔═══════════════════════════════════════════════════════════════╗
+║              ELITE-X v3.3.1 FALCON ENHANCED (FULL)           ║
+║     C Proxy • IPv6 Off • BBR • 20MB Buff • Nice -20          ║
+╚═══════════════════════════════════════════════════════════════╝
+EOF
+cp /etc/elite-x/banner/default /etc/elite-x/banner/ssh-banner
+echo "Banner /etc/elite-x/banner/ssh-banner" >> /etc/ssh/sshd_config
+systemctl restart sshd 2>/dev/null || true
+
+# Configure DNS
+[ -f /etc/systemd/resolved.conf ] && {
+    sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
+    systemctl restart systemd-resolved 2>/dev/null || true
+}
+[ -L /etc/resolv.conf ] && rm -f /etc/resolv.conf
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+echo "nameserver 8.8.4.4" >> /etc/resolv.conf
+
+# Install dependencies
+echo -e "${YELLOW}📦 Installing dependencies...${NC}"
+apt update -y
+apt install -y curl python3 jq iptables ethtool dnsutils net-tools iproute2 bc build-essential git gcc 2>/dev/null
+
+# Apply kernel optimizations and disable IPv6
+optimize_kernel_and_disable_ipv6
+
+# Download DNSTT
+echo -e "${YELLOW}📥 Downloading DNSTT server...${NC}"
+curl -fsSL https://dnstt.network/dnstt-server-linux-amd64 -o /usr/local/bin/dnstt-server 2>/dev/null || {
+    curl -fsSL https://github.com/NoXFiQ/Elite-X-dns.sh/raw/main/dnstt-server -o /usr/local/bin/dnstt-server 2>/dev/null
+}
+chmod +x /usr/local/bin/dnstt-server
+
+# Setup DNSTT keys
+mkdir -p /etc/dnstt
+echo "$STATIC_PRIVATE_KEY" > /etc/dnstt/server.key
+echo "$STATIC_PUBLIC_KEY" > /etc/dnstt/server.pub
+chmod 600 /etc/dnstt/server.key
+
+# Create DNSTT service (Nice -20, LimitNOFILE 1M, CPUQuota 200%)
+cat > /etc/systemd/system/dnstt-elite-x.service <<EOF
+[Unit]
+Description=ELITE-X DNSTT Server v3.3.1
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+Nice=-20
+ExecStart=/usr/local/bin/dnstt-server -udp :5300 -mtu ${MTU} -privkey-file /etc/dnstt/server.key ${TDOMAIN} 127.0.0.1:22
+Restart=always
+RestartSec=5
+LimitNOFILE=1000000
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Install 3Proxy
+install_3proxy
+
+# Compile C EDNS Proxy
+create_c_edns_proxy
+
+# Use C binary if available, otherwise fallback to Python
+if [ -f "$EDNS_C_BIN" ] && [ -x "$EDNS_C_BIN" ]; then
+    PROXY_EXEC="$EDNS_C_BIN"
+    PROXY_TYPE="C (compiled, multi-core)"
+else
+    PROXY_EXEC="/usr/bin/python3 /usr/local/bin/dnstt-edns-proxy.py"
+    PROXY_TYPE="Python (fallback)"
+fi
+
+# Create EDNS Proxy service (Nice -20, LimitNOFILE 1M, CPUQuota 200%)
+cat > /etc/systemd/system/dnstt-elite-x-proxy.service <<EOF
+[Unit]
+Description=ELITE-X EDNS Proxy (${PROXY_TYPE})
+After=dnstt-elite-x.service
+
+[Service]
+Type=simple
+User=root
+Nice=-20
+LimitNOFILE=1000000
+ExecStart=${PROXY_EXEC}
+Restart=always
+RestartSec=3
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Keep Python proxy as fallback
+cat > /usr/local/bin/dnstt-edns-proxy.py <<'EOF'
+#!/usr/bin/env python3
+import socket, threading, struct, sys, time, os, signal, logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+L=5300; running=True
+def modify_edns(d, max_size):
+    if len(d)<12: return d
+    o=12
+    def skip_name(b,o):
+        while o<len(b):
+            l=b[o];o+=1
+            if l==0:break
+            if l&0xC0==0xC0:o+=1;break
+            o+=l
+        return o
+    try: q,a,n,r=struct.unpack("!HHHH",d[4:12])
+    except: return d
+    for _ in range(q): o=skip_name(d,o); o+=4
+    for _ in range(a+n):
+        o=skip_name(d,o)
+        if o+10>len(d): return d
+        try: _,_,_,l=struct.unpack("!HHIH",d[o:o+10])
+        except: return d
+        o+=10+l
+    modified=bytearray(d)
+    for _ in range(r):
+        o=skip_name(d,o)
+        if o+10>len(d): return d
+        t=struct.unpack("!H",d[o:o+2])[0]
+        if t==41: modified[o+2:o+4]=struct.pack("!H",max_size); return bytes(modified)
+        _,_,l=struct.unpack("!HIH",d[o+2:o+10]); o+=10+l
+    return d
+def handle(sock,data,addr):
+    c=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);c.settimeout(5)
+    try:
+        md=modify_edns(data,1800);c.sendto(md,('127.0.0.1',L))
+        r,_=c.recvfrom(4096);mr=modify_edns(r,512);sock.sendto(mr,addr)
+    except:pass
+    finally:c.close()
+def main():
+    global running
+    s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+    os.system("fuser -k 53/udp 2>/dev/null; sleep 1")
+    try: s.bind(('0.0.0.0',53))
+    except:
+        os.system("fuser -k 53/udp 2>/dev/null; sleep 2")
+        try: s.bind(('0.0.0.0',53))
+        except: logging.error("Cannot bind port 53"); sys.exit(1)
+    logging.info("EDNS Proxy on port 53 (Python fallback)")
+    while running:
+        try: data,addr=s.recvfrom(4096);threading.Thread(target=handle,args=(s,data,addr),daemon=True).start()
+        except:pass
+main()
+EOF
+chmod +x /usr/local/bin/dnstt-edns-proxy.py
+
+# Create all monitoring scripts
+create_bandwidth_monitor
+create_connection_monitor
+create_data_usage_monitor
+create_user_script
+create_main_menu
+
+# Enable and start services
+systemctl daemon-reload
+for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon 3proxy-elite; do
+    [ -f "/etc/systemd/system/${s}.service" ] && {
+        systemctl enable "$s" 2>/dev/null || true
+        systemctl start "$s" 2>/dev/null || true
+    }
+done
+
+# Cache IP
+IP=$(curl -4 -s ifconfig.me 2>/dev/null || echo "Unknown")
+echo "$IP" > /etc/elite-x/cached_ip
+
+# Setup auto-login dashboard
+cat > /etc/profile.d/elite-x-dashboard.sh <<'EOF'
+#!/bin/bash
+if [ -f /usr/local/bin/elite-x ] && [ -z "$ELITE_X_SHOWN" ]; then
+    export ELITE_X_SHOWN=1
+    /usr/local/bin/elite-x
+fi
+EOF
+chmod +x /etc/profile.d/elite-x-dashboard.sh
+
+# Add aliases
+cat >> ~/.bashrc <<'EOF'
+alias menu='elite-x'
+alias elitex='elite-x'
+alias adduser='elite-x-user add'
+alias users='elite-x-user list'
+alias setbw='elite-x-user setbw'
+EOF
+
+# ═══════════════════════════════════════════════════════════════
+# FINAL
+# ═══════════════════════════════════════════════════════════════
+clear
+echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║${YELLOW}${BOLD}     ELITE-X v3.3.1 FALCON ENHANCED (FULL) - INSTALLED!    ${GREEN}║${NC}"
+echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+echo -e "${GREEN}║${WHITE}  Domain     :${CYAN} $TDOMAIN${NC}"
+echo -e "${GREEN}║${WHITE}  Location   :${CYAN} $SEL_LOC (MTU: $MTU)${NC}"
+echo -e "${GREEN}║${WHITE}  IP         :${CYAN} $IP${NC}"
+echo -e "${GREEN}║${WHITE}  Proxy      :${CYAN} ${PROXY_TYPE}${NC}"
+echo -e "${GREEN}║${WHITE}  IPv6       :${RED} DISABLED${NC}"
+echo -e "${GREEN}║${WHITE}  Kernel     :${GREEN} BBR + 20MB Buffers + High Backlog${NC}"
+echo -e "${GREEN}║${WHITE}  Nice       :${GREEN} -20 (Max Priority)${NC}"
+echo -e "${GREEN}║${WHITE}  Version    :${CYAN} v3.3.1 Falcon Enhanced (Full Optimized)${NC}"
+echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+systemctl is-active dnstt-elite-x >/dev/null 2>&1 && echo -e "${GREEN}║  ✅ DNSTT Server: Running${NC}" || echo -e "${RED}║  ❌ DNSTT Server: Failed${NC}"
+systemctl is-active dnstt-elite-x-proxy >/dev/null 2>&1 && echo -e "${GREEN}║  ✅ EDNS Proxy (${PROXY_TYPE}): Running${NC}" || echo -e "${RED}║  ❌ EDNS Proxy: Failed${NC}"
+systemctl is-active elite-x-bandwidth >/dev/null 2>&1 && echo -e "${GREEN}║  ✅ Bandwidth Monitor: Running${NC}" || echo -e "${RED}║  ❌ Bandwidth: Failed${NC}"
+systemctl is-active 3proxy-elite >/dev/null 2>&1 && echo -e "${GREEN}║  ✅ 3Proxy: Running${NC}" || echo -e "${YELLOW}║  ⚠️ 3Proxy: Not running${NC}"
+echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "${YELLOW}Commands: menu | elite-x | users | adduser | setbw${NC}"
+echo -e "${YELLOW}Type 'exec bash' or re-login to access the dashboard${NC}"
