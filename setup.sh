@@ -1,809 +1,599 @@
 #!/bin/bash
 
 # ============================================================================
-# ELITE-X WEB DASHBOARD INSTALLER
-# With Login System - Port 8080
+#                     SLOWDNS MODERN INSTALLATION SCRIPT
+#                          ELITE-X8 EDITION v2.0
+#                     WITH LOGIN SYSTEM & USER MANAGEMENT
 # ============================================================================
 
+# Ensure running as root
 if [ "$EUID" -ne 0 ]; then
-    echo -e "\033[0;31m[✗]\033[0m Run as root: sudo bash setup.sh"
+    echo -e "\033[0;31m[✗]\033[0m Please run this script as root"
     exit 1
 fi
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-PANEL_PORT=8080
-PANEL_USER="elite-x"
-PANEL_PASS="elite2026"
-PANEL_DIR="/etc/elite-x/web"
-USERS_DIR="/etc/elite-x/users"
-USAGE_DIR="/etc/elite-x/data_usage"
-BANNED_DIR="/etc/elite-x/banned"
-DELETED_DIR="/etc/elite-x/deleted"
+SSHD_PORT=22
+SLOWDNS_PORT=5300
+DASHBOARD_PORT=8080
+GITHUB_BASE="https://raw.githubusercontent.com/ELITE-X8/setup.sh/main"
+LOG_FILE="/var/log/slowdns-install.log"
+USERS_DB="/etc/slowdns/users.db"
+CONFIG_FILE="/etc/slowdns/config.ini"
+
+# Default credentials
+ADMIN_USER="elite-x"
+ADMIN_PASS="elite2026"
 
 # ============================================================================
-# COLORS
+# MODERN COLORS & DESIGN
 # ============================================================================
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 WHITE='\033[1;37m'
 BOLD='\033[1m'
 NC='\033[0m'
 
 # ============================================================================
-# BANNER
+# LOGGING FUNCTION
 # ============================================================================
-show_banner() {
-    clear
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${YELLOW}${BOLD}         ELITE-X WEB DASHBOARD INSTALLER                      ${CYAN}║${NC}"
-    echo -e "${CYAN}║${WHITE}         Login System + Full User Management                   ${CYAN}║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
+log_message() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
 # ============================================================================
-# INSTALL DEPENDENCIES
+# PASSWORD HASHING FUNCTIONS
 # ============================================================================
-install_dependencies() {
-    echo -e "${YELLOW}[1/5] Installing dependencies...${NC}"
-    apt-get update -qq > /dev/null 2>&1
-    apt-get install -y -qq python3 python3-pip curl net-tools bc > /dev/null 2>&1
-    pip3 install flask flask-login 2>/dev/null || apt-get install -y python3-flask python3-flask-login > /dev/null 2>&1
-    echo -e "${GREEN}✓ Dependencies installed${NC}"
+hash_password() {
+    echo -n "$1" | sha256sum | awk '{print $1}'
 }
 
-# ============================================================================
-# CREATE DIRECTORY STRUCTURE
-# ============================================================================
-create_directories() {
-    echo -e "${YELLOW}[2/5] Creating directory structure...${NC}"
-    mkdir -p "$PANEL_DIR"
-    mkdir -p "$PANEL_DIR/templates"
-    mkdir -p "$PANEL_DIR/static"
-    mkdir -p "$USERS_DIR"
-    mkdir -p "$USAGE_DIR"
-    mkdir -p "$BANNED_DIR"
-    mkdir -p "$DELETED_DIR"
-    echo -e "${GREEN}✓ Directories created${NC}"
-}
-
-# ============================================================================
-# CREATE WEB APPLICATION (FLASK)
-# ============================================================================
-create_web_app() {
-    echo -e "${YELLOW}[3/5] Creating web application...${NC}"
+verify_password() {
+    local user="$1"
+    local pass="$2"
+    local stored_hash=$(grep "^$user:" "$USERS_DB" | cut -d: -f2)
+    local input_hash=$(hash_password "$pass")
     
-    # Main Flask Application
-    cat > "$PANEL_DIR/app.py" << 'PYEOF'
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
-from functools import wraps
-import subprocess
-import os
-import datetime
-import json
-import glob
-import bcrypt
-
-app = Flask(__name__)
-app.secret_key = 'elite-x-secret-key-2026-ultra-secure'
-
-# Configuration
-PANEL_USER = "elite-x"
-PANEL_PASS = "elite2026"
-USERS_DIR = "/etc/elite-x/users"
-USAGE_DIR = "/etc/elite-x/data_usage"
-BANNED_DIR = "/etc/elite-x/banned"
-DELETED_DIR = "/etc/elite-x/deleted"
-AUTOBAN_FLAG = "/etc/elite-x/autoban_enabled"
-SUBDOMAIN_FILE = "/etc/elite-x/subdomain"
-MTU_FILE = "/etc/elite-x/mtu"
-LOCATION_FILE = "/etc/elite-x/location"
-
-# Login required decorator
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'logged_in' not in session:
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
-
-# Helper functions
-def get_system_info():
-    """Get system information"""
-    info = {}
-    
-    # Server IP
-    try:
-        info['ip'] = subprocess.check_output("curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}'", 
-                                              shell=True).decode().strip()
-    except:
-        info['ip'] = "Unknown"
-    
-    # Subdomain/NS
-    try:
-        with open(SUBDOMAIN_FILE) as f:
-            info['ns'] = f.read().strip()
-    except:
-        info['ns'] = "Not configured"
-    
-    # Location & MTU
-    try:
-        with open(LOCATION_FILE) as f:
-            info['location'] = f.read().strip()
-    except:
-        info['location'] = "South Africa"
-    
-    try:
-        with open(MTU_FILE) as f:
-            info['mtu'] = f.read().strip()
-    except:
-        info['mtu'] = "1800"
-    
-    # RAM
-    try:
-        result = subprocess.check_output("free -h | awk '/^Mem:/{print $3\"/\"$2}'", shell=True).decode().strip()
-        info['ram'] = result
-    except:
-        info['ram'] = "Unknown"
-    
-    # Uptime
-    try:
-        info['uptime'] = subprocess.check_output("uptime -p", shell=True).decode().strip()
-    except:
-        info['uptime'] = "Unknown"
-    
-    # BBR Status
-    try:
-        bbr = subprocess.check_output("sysctl net.ipv4.tcp_congestion_control 2>/dev/null | awk '{print $3}'", 
-                                       shell=True).decode().strip()
-        info['bbr'] = "ACTIVE" if bbr == "bbr" else "INACTIVE"
-    except:
-        info['bbr'] = "Unknown"
-    
-    # Services status
-    services = ['dnstt-elite-x', 'dnstt-elite-x-proxy', 'elite-x-datausage', 'ssh']
-    info['services'] = {}
-    for svc in services:
-        try:
-            result = subprocess.run(['systemctl', 'is-active', svc], capture_output=True, text=True)
-            info['services'][svc] = 'active' if 'active' in result.stdout else 'inactive'
-        except:
-            info['services'][svc] = 'unknown'
-    
-    # Connection count
-    try:
-        info['connections'] = int(subprocess.check_output("ss -tn | grep ESTAB | wc -l", shell=True).decode().strip())
-    except:
-        info['connections'] = 0
-    
-    # Auto-ban status
-    try:
-        with open(AUTOBAN_FLAG) as f:
-            info['autoban'] = f.read().strip() == "1"
-    except:
-        info['autoban'] = False
-    
-    return info
-
-def get_connection_count(username):
-    """Get active connections for user"""
-    try:
-        who_count = int(subprocess.check_output(f"who | grep -w {username} | wc -l", shell=True).decode().strip())
-        ps_count = int(subprocess.check_output(f"ps aux | grep 'sshd:' | grep {username} | grep -v grep | wc -l", 
-                                                shell=True).decode().strip())
-        last_count = int(subprocess.check_output(f"last | grep {username} | grep 'still logged in' | wc -l", 
-                                                  shell=True).decode().strip())
-        return max(who_count, last_count, ps_count)
-    except:
+    if [ "$stored_hash" = "$input_hash" ]; then
         return 0
-
-def get_monthly_usage(username):
-    """Get monthly data usage for user"""
-    usage_file = os.path.join(USAGE_DIR, username)
-    if os.path.exists(usage_file):
-        try:
-            with open(usage_file) as f:
-                content = f.read()
-                rx = 0.0
-                tx = 0.0
-                total = 0.0
-                for line in content.split('\n'):
-                    if line.startswith('rx_gb:'):
-                        rx = float(line.split(':')[1].strip())
-                    if line.startswith('tx_gb:'):
-                        tx = float(line.split(':')[1].strip())
-                    if line.startswith('total_gb:'):
-                        total = float(line.split(':')[1].strip())
-                return {'rx': rx, 'tx': tx, 'total': total}
-        except:
-            pass
-    return {'rx': 0.0, 'tx': 0.0, 'total': 0.0}
-
-# Routes
-@app.route('/')
-def login():
-    """Login page"""
-    if 'logged_in' in session:
-        return redirect(url_for('dashboard'))
-    return render_template('login.html')
-
-@app.route('/login', methods=['POST'])
-def do_login():
-    """Handle login"""
-    username = request.form.get('username', '')
-    password = request.form.get('password', '')
-    
-    if username == PANEL_USER and password == PANEL_PASS:
-        session['logged_in'] = True
-        session['username'] = username
-        return redirect(url_for('dashboard'))
-    
-    return render_template('login.html', error="Invalid credentials!")
-
-@app.route('/logout')
-def logout():
-    """Logout"""
-    session.clear()
-    return redirect(url_for('login'))
-
-@app.route('/dashboard')
-@login_required
-def dashboard():
-    """Main dashboard"""
-    info = get_system_info()
-    
-    # Get user stats
-    users_list = []
-    if os.path.exists(USERS_DIR):
-        for filename in os.listdir(USERS_DIR):
-            filepath = os.path.join(USERS_DIR, filename)
-            if os.path.isfile(filepath):
-                with open(filepath) as f:
-                    user_data = {}
-                    for line in f:
-                        if ':' in line:
-                            key, val = line.split(':', 1)
-                            user_data[key.strip()] = val.strip()
-                    
-                    username = user_data.get('Username', filename)
-                    expire = user_data.get('Expire', 'Unknown')
-                    conn_limit = int(user_data.get('Conn_Limit', 1))
-                    current_conn = get_connection_count(username)
-                    usage = get_monthly_usage(username)
-                    
-                    # Calculate days left
-                    try:
-                        exp_date = datetime.datetime.strptime(expire, '%Y-%m-%d')
-                        days_left = (exp_date - datetime.datetime.now()).days
-                    except:
-                        days_left = -1
-                    
-                    # Determine status
-                    try:
-                        locked = 'L' in subprocess.check_output(f"passwd -S {username}", 
-                                                                 shell=True, stderr=subprocess.DEVNULL).decode()
-                    except:
-                        locked = False
-                    
-                    if locked:
-                        status = 'locked'
-                    elif days_left <= 0:
-                        status = 'expired'
-                    elif current_conn > 0:
-                        status = 'online'
-                    else:
-                        status = 'offline'
-                    
-                    users_list.append({
-                        'username': username,
-                        'password': user_data.get('Password', '****'),
-                        'expire': expire,
-                        'days_left': days_left,
-                        'conn_limit': conn_limit,
-                        'current_conn': current_conn,
-                        'usage': usage,
-                        'status': status
-                    })
-    
-    return render_template('dashboard.html', info=info, users=users_list)
-
-@app.route('/api/add_user', methods=['POST'])
-@login_required
-def api_add_user():
-    """Add new user via API"""
-    try:
-        username = request.form.get('username')
-        password = request.form.get('password')
-        days = request.form.get('days', '30')
-        conn_limit = request.form.get('conn_limit', '1')
-        
-        if not username or not password:
-            return jsonify({'success': False, 'message': 'Username and password required'})
-        
-        # Check if user exists
-        if os.path.exists(os.path.join(USERS_DIR, username)):
-            return jsonify({'success': False, 'message': 'User already exists!'})
-        
-        # Create system user
-        subprocess.run(['useradd', '-m', '-s', '/bin/false', username], capture_output=True)
-        subprocess.run(['chpasswd'], input=f"{username}:{password}".encode(), capture_output=True)
-        
-        # Calculate expiry
-        expire_date = (datetime.datetime.now() + datetime.timedelta(days=int(days))).strftime('%Y-%m-%d')
-        subprocess.run(['chage', '-E', expire_date, username], capture_output=True)
-        
-        # Save user info
-        user_file = os.path.join(USERS_DIR, username)
-        with open(user_file, 'w') as f:
-            f.write(f"Username: {username}\n")
-            f.write(f"Password: {password}\n")
-            f.write(f"Expire: {expire_date}\n")
-            f.write(f"Conn_Limit: {conn_limit}\n")
-            f.write(f"Created: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        
-        # Initialize usage
-        usage_file = os.path.join(USAGE_DIR, username)
-        with open(usage_file, 'w') as f:
-            f.write(f"month: {datetime.datetime.now().strftime('%Y-%m')}\n")
-            f.write("total_rx: 0\n")
-            f.write("total_tx: 0\n")
-            f.write("rx_gb: 0.00\n")
-            f.write("tx_gb: 0.00\n")
-            f.write("total_gb: 0.00\n")
-            f.write(f"last_updated: {datetime.datetime.now()}\n")
-        
-        # Get NS for response
-        try:
-            with open(SUBDOMAIN_FILE) as f:
-                ns = f.read().strip()
-        except:
-            ns = "Unknown"
-        
-        return jsonify({
-            'success': True, 
-            'message': f'User {username} created successfully!',
-            'user': {
-                'username': username,
-                'password': password,
-                'ns': ns,
-                'expire': expire_date,
-                'conn_limit': conn_limit
-            }
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
-
-@app.route('/api/delete_user', methods=['POST'])
-@login_required
-def api_delete_user():
-    """Delete user via API"""
-    username = request.form.get('username')
-    if not username:
-        return jsonify({'success': False, 'message': 'Username required'})
-    
-    user_file = os.path.join(USERS_DIR, username)
-    if not os.path.exists(user_file):
-        return jsonify({'success': False, 'message': 'User not found'})
-    
-    # Backup
-    backup_file = os.path.join(DELETED_DIR, f"{username}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}")
-    subprocess.run(['cp', user_file, backup_file], capture_output=True)
-    
-    # Kill sessions & delete
-    subprocess.run(['pkill', '-u', username], capture_output=True)
-    subprocess.run(['pkill', '-f', f'sshd:.*{username}'], capture_output=True)
-    subprocess.run(['userdel', '-r', username], capture_output=True)
-    
-    # Remove files
-    for f in [user_file, os.path.join(USAGE_DIR, username), os.path.join(BANNED_DIR, username)]:
-        if os.path.exists(f):
-            os.remove(f)
-    
-    return jsonify({'success': True, 'message': f'User {username} deleted'})
-
-@app.route('/api/renew_user', methods=['POST'])
-@login_required
-def api_renew_user():
-    """Renew user expiry"""
-    username = request.form.get('username')
-    days = request.form.get('days', '30')
-    
-    user_file = os.path.join(USERS_DIR, username)
-    if not os.path.exists(user_file):
-        return jsonify({'success': False, 'message': 'User not found'})
-    
-    # Read current expiry
-    current_expire = None
-    with open(user_file) as f:
-        for line in f:
-            if line.startswith('Expire:'):
-                current_expire = line.split(':', 1)[1].strip()
-    
-    if current_expire:
-        try:
-            exp_date = datetime.datetime.strptime(current_expire, '%Y-%m-%d')
-            new_expire = (exp_date + datetime.timedelta(days=int(days))).strftime('%Y-%m-%d')
-        except:
-            new_expire = (datetime.datetime.now() + datetime.timedelta(days=int(days))).strftime('%Y-%m-%d')
-    else:
-        new_expire = (datetime.datetime.now() + datetime.timedelta(days=int(days))).strftime('%Y-%m-%d')
-    
-    # Update file
-    lines = []
-    with open(user_file) as f:
-        for line in f:
-            if line.startswith('Expire:'):
-                lines.append(f'Expire: {new_expire}\n')
-            else:
-                lines.append(line)
-    
-    with open(user_file, 'w') as f:
-        f.writelines(lines)
-    
-    # Update system
-    subprocess.run(['chage', '-E', new_expire, username], capture_output=True)
-    
-    return jsonify({'success': True, 'message': f'User {username} renewed until {new_expire}'})
-
-@app.route('/api/lock_user', methods=['POST'])
-@login_required
-def api_lock_user():
-    """Lock user"""
-    username = request.form.get('username')
-    
-    user_file = os.path.join(USERS_DIR, username)
-    if not os.path.exists(user_file):
-        return jsonify({'success': False, 'message': 'User not found'})
-    
-    subprocess.run(['usermod', '-L', username], capture_output=True)
-    subprocess.run(['pkill', '-u', username], capture_output=True)
-    subprocess.run(['pkill', '-f', f'sshd:.*{username}'], capture_output=True)
-    
-    # Log
-    ban_file = os.path.join(BANNED_DIR, username)
-    with open(ban_file, 'a') as f:
-        f.write(f"{datetime.datetime.now()} - MANUALLY LOCKED via web\n")
-    
-    return jsonify({'success': True, 'message': f'User {username} locked'})
-
-@app.route('/api/unlock_user', methods=['POST'])
-@login_required
-def api_unlock_user():
-    """Unlock user"""
-    username = request.form.get('username')
-    
-    user_file = os.path.join(USERS_DIR, username)
-    if not os.path.exists(user_file):
-        return jsonify({'success': False, 'message': 'User not found'})
-    
-    subprocess.run(['usermod', '-U', username], capture_output=True)
-    
-    # Log
-    ban_file = os.path.join(BANNED_DIR, username)
-    with open(ban_file, 'a') as f:
-        f.write(f"{datetime.datetime.now()} - UNLOCKED via web\n")
-    
-    return jsonify({'success': True, 'message': f'User {username} unlocked'})
-
-@app.route('/api/set_limit', methods=['POST'])
-@login_required
-def api_set_limit():
-    """Set connection limit"""
-    username = request.form.get('username')
-    limit = request.form.get('limit', '1')
-    
-    user_file = os.path.join(USERS_DIR, username)
-    if not os.path.exists(user_file):
-        return jsonify({'success': False, 'message': 'User not found'})
-    
-    lines = []
-    found = False
-    with open(user_file) as f:
-        for line in f:
-            if line.startswith('Conn_Limit:'):
-                lines.append(f'Conn_Limit: {limit}\n')
-                found = True
-            else:
-                lines.append(line)
-    
-    if not found:
-        lines.append(f'Conn_Limit: {limit}\n')
-    
-    with open(user_file, 'w') as f:
-        f.writelines(lines)
-    
-    return jsonify({'success': True, 'message': f'Connection limit set to {limit} for {username}'})
-
-@app.route('/api/reset_usage', methods=['POST'])
-@login_required
-def api_reset_usage():
-    """Reset data usage"""
-    username = request.form.get('username')
-    
-    usage_file = os.path.join(USAGE_DIR, username)
-    with open(usage_file, 'w') as f:
-        f.write(f"month: {datetime.datetime.now().strftime('%Y-%m')}\n")
-        f.write("total_rx: 0\n")
-        f.write("total_tx: 0\n")
-        f.write("rx_gb: 0.00\n")
-        f.write("tx_gb: 0.00\n")
-        f.write("total_gb: 0.00\n")
-        f.write(f"last_updated: {datetime.datetime.now()}\n")
-    
-    return jsonify({'success': True, 'message': f'Usage reset for {username}'})
-
-@app.route('/api/toggle_autoban', methods=['POST'])
-@login_required
-def api_toggle_autoban():
-    """Toggle auto-ban"""
-    try:
-        with open(AUTOBAN_FLAG) as f:
-            current = f.read().strip()
-    except:
-        current = "0"
-    
-    new_val = "0" if current == "1" else "1"
-    with open(AUTOBAN_FLAG, 'w') as f:
-        f.write(new_val)
-    
-    subprocess.run(['systemctl', 'restart', 'elite-x-connmon'], capture_output=True)
-    
-    status = "ENABLED" if new_val == "1" else "DISABLED"
-    return jsonify({'success': True, 'message': f'Auto-Ban {status}', 'autoban': new_val == "1"})
-
-@app.route('/api/restart_services', methods=['POST'])
-@login_required
-def api_restart_services():
-    """Restart all services"""
-    services = ['dnstt-elite-x', 'dnstt-elite-x-proxy', 'elite-x-datausage', 'elite-x-connmon', 'sshd']
-    for svc in services:
-        subprocess.run(['systemctl', 'restart', svc], capture_output=True)
-    
-    return jsonify({'success': True, 'message': 'All services restarted'})
-
-@app.route('/api/apply_speed', methods=['POST'])
-@login_required
-def api_apply_speed():
-    """Apply speed optimization"""
-    subprocess.run(['/usr/local/bin/elite-x-speed', 'full'], capture_output=True)
-    return jsonify({'success': True, 'message': 'Speed optimizations applied'})
-
-@app.route('/api/change_mtu', methods=['POST'])
-@login_required
-def api_change_mtu():
-    """Change MTU value"""
-    mtu = request.form.get('mtu', '1800')
-    
-    try:
-        mtu_int = int(mtu)
-        if mtu_int < 1000 or mtu_int > 5000:
-            return jsonify({'success': False, 'message': 'MTU must be between 1000-5000'})
-    except:
-        return jsonify({'success': False, 'message': 'Invalid MTU value'})
-    
-    # Update files
-    with open(MTU_FILE, 'w') as f:
-        f.write(mtu)
-    
-    # Update service file
-    subprocess.run(['sed', '-i', f's/-mtu [0-9]*/-mtu {mtu}/', '/etc/systemd/system/dnstt-elite-x.service'])
-    subprocess.run(['systemctl', 'daemon-reload'])
-    subprocess.run(['systemctl', 'restart', 'dnstt-elite-x', 'dnstt-elite-x-proxy'])
-    
-    return jsonify({'success': True, 'message': f'MTU changed to {mtu}'})
-
-@app.route('/api/reboot', methods=['POST'])
-@login_required
-def api_reboot():
-    """Reboot VPS"""
-    subprocess.run(['reboot'])
-    return jsonify({'success': True, 'message': 'Rebooting...'})
-
-@app.route('/api/uninstall', methods=['POST'])
-@login_required
-def api_uninstall():
-    """Uninstall script"""
-    # Kill services
-    services = ['dnstt-elite-x', 'dnstt-elite-x-proxy', 'elite-x-cleaner', 
-                'elite-x-datausage', 'elite-x-connmon', 'elite-x-traffic', 'elite-x-web']
-    for svc in services:
-        subprocess.run(['systemctl', 'stop', svc], capture_output=True)
-        subprocess.run(['systemctl', 'disable', svc], capture_output=True)
-    
-    # Remove service files
-    for svc in services:
-        path = f'/etc/systemd/system/{svc}.service'
-        if os.path.exists(path):
-            os.remove(path)
-    
-    # Remove directories
-    subprocess.run(['rm', '-rf', '/etc/dnstt', '/etc/elite-x', '/var/run/elite-x'])
-    
-    # Remove binaries
-    for bin_file in glob.glob('/usr/local/bin/dnstt-*') + glob.glob('/usr/local/bin/elite-x*'):
-        if os.path.exists(bin_file):
-            os.remove(bin_file)
-    
-    # Remove SSH banner
-    subprocess.run(['sed', '-i', '/^Banner/d', '/etc/ssh/sshd_config'])
-    subprocess.run(['systemctl', 'restart', 'sshd'])
-    
-    return jsonify({'success': True, 'message': 'Uninstalled. Server will need manual cleanup.'})
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080, debug=False)
-PYEOF
-    
-    chmod +x "$PANEL_DIR/app.py"
-    echo -e "${GREEN}✓ Web application created${NC}"
+    else
+        return 1
+    fi
 }
 
 # ============================================================================
-# CREATE HTML TEMPLATES
+# USER MANAGEMENT FUNCTIONS
 # ============================================================================
-create_templates() {
-    echo -e "${YELLOW}[4/5] Creating web templates...${NC}"
+init_users_db() {
+    mkdir -p /etc/slowdns
+    if [ ! -f "$USERS_DB" ]; then
+        touch "$USERS_DB"
+        chmod 600 "$USERS_DB"
+        # Add default admin user
+        local admin_hash=$(hash_password "$ADMIN_PASS")
+        echo "$ADMIN_USER:$admin_hash:admin:active:$(date +%s)" >> "$USERS_DB"
+        log_message "Users database initialized with admin user"
+    fi
+}
+
+add_user() {
+    local username="$1"
+    local password="$2"
+    local role="${3:-user}"
     
-    # Login Page
-    cat > "$PANEL_DIR/templates/login.html" << 'HTMLEOF'
+    if grep -q "^$username:" "$USERS_DB"; then
+        return 1
+    fi
+    
+    local pass_hash=$(hash_password "$password")
+    echo "$username:$pass_hash:$role:active:$(date +%s)" >> "$USERS_DB"
+    log_message "User added: $username ($role)"
+    return 0
+}
+
+remove_user() {
+    local username="$1"
+    
+    if [ "$username" = "$ADMIN_USER" ]; then
+        return 1
+    fi
+    
+    sed -i "/^$username:/d" "$USERS_DB"
+    log_message "User removed: $username"
+    return 0
+}
+
+list_users() {
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC} ${WHITE}${BOLD}REGISTERED USERS${NC}                                 ${CYAN}║${NC}"
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${NC} ${YELLOW}USERNAME      ROLE      STATUS      CREATED${NC}         ${CYAN}║${NC}"
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════╣${NC}"
+    
+    while IFS=: read -r user hash role status created; do
+        local created_date=$(date -d "@$created" "+%Y-%m-%d" 2>/dev/null || echo "Unknown")
+        printf "${CYAN}║${NC} %-13s %-9s %-10s %-12s ${CYAN}║${NC}\n" "$user" "$role" "$status" "$created_date"
+    done < "$USERS_DB"
+    
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
+}
+
+change_password() {
+    local username="$1"
+    local new_password="$2"
+    
+    if ! grep -q "^$username:" "$USERS_DB"; then
+        return 1
+    fi
+    
+    local role=$(grep "^$username:" "$USERS_DB" | cut -d: -f3)
+    local status=$(grep "^$username:" "$USERS_DB" | cut -d: -f4)
+    local created=$(grep "^$username:" "$USERS_DB" | cut -d: -f5)
+    local new_hash=$(hash_password "$new_password")
+    
+    sed -i "/^$username:/d" "$USERS_DB"
+    echo "$username:$new_hash:$role:$status:$created" >> "$USERS_DB"
+    log_message "Password changed for user: $username"
+    return 0
+}
+
+# ============================================================================
+# C-BASED AUTHENTICATION SERVER
+# ============================================================================
+compile_auth_server() {
+    print_info "Compiling Authentication Server..."
+    
+    cat > /tmp/auth_server.c << 'CEOF'
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <time.h>
+#include <signal.h>
+
+#define PORT 9090
+#define BUFFER_SIZE 4096
+#define USERS_FILE "/etc/slowdns/users.db"
+#define SESSION_TIMEOUT 3600
+
+typedef struct {
+    char username[64];
+    char session_id[128];
+    time_t created;
+    int active;
+} session_t;
+
+session_t sessions[100];
+int session_count = 0;
+
+// Simple SHA256 implementation for password hashing
+void simple_hash(const char *input, char *output) {
+    // Using shell command for simplicity
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd), "echo -n '%s' | sha256sum | awk '{print $1}'", input);
+    FILE *fp = popen(cmd, "r");
+    if (fp) {
+        fgets(output, 33, fp);
+        output[32] = '\0';
+        pclose(fp);
+    }
+}
+
+int verify_credentials(const char *username, const char *password) {
+    FILE *fp = fopen(USERS_FILE, "r");
+    if (!fp) return 0;
+    
+    char line[256];
+    char input_hash[33];
+    simple_hash(password, input_hash);
+    
+    while (fgets(line, sizeof(line), fp)) {
+        char *user = strtok(line, ":");
+        char *hash = strtok(NULL, ":");
+        char *role = strtok(NULL, ":");
+        char *status = strtok(NULL, ":");
+        
+        if (user && hash && strcmp(username, user) == 0) {
+            if (strcmp(input_hash, hash) == 0 && strcmp(status, "active") == 0) {
+                fclose(fp);
+                return 1;
+            }
+        }
+    }
+    
+    fclose(fp);
+    return 0;
+}
+
+void generate_session_id(char *session_id) {
+    const char *chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    srand(time(NULL) ^ getpid());
+    for (int i = 0; i < 32; i++) {
+        session_id[i] = chars[rand() % 62];
+    }
+    session_id[32] = '\0';
+}
+
+char *create_session(const char *username) {
+    // Remove expired sessions
+    time_t now = time(NULL);
+    for (int i = 0; i < session_count; i++) {
+        if (sessions[i].active && (now - sessions[i].created) > SESSION_TIMEOUT) {
+            sessions[i].active = 0;
+        }
+    }
+    
+    // Find empty slot
+    for (int i = 0; i < 100; i++) {
+        if (!sessions[i].active) {
+            strncpy(sessions[i].username, username, 63);
+            generate_session_id(sessions[i].session_id);
+            sessions[i].created = now;
+            sessions[i].active = 1;
+            if (i >= session_count) session_count = i + 1;
+            return sessions[i].session_id;
+        }
+    }
+    
+    return NULL;
+}
+
+int validate_session(const char *session_id) {
+    time_t now = time(NULL);
+    for (int i = 0; i < session_count; i++) {
+        if (sessions[i].active && 
+            strcmp(sessions[i].session_id, session_id) == 0 &&
+            (now - sessions[i].created) <= SESSION_TIMEOUT) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void handle_request(int client_fd) {
+    char buffer[BUFFER_SIZE];
+    int bytes_read = read(client_fd, buffer, BUFFER_SIZE - 1);
+    
+    if (bytes_read <= 0) {
+        close(client_fd);
+        return;
+    }
+    
+    buffer[bytes_read] = '\0';
+    
+    // Parse request
+    char method[16] = {0};
+    char path[256] = {0};
+    sscanf(buffer, "%s %s", method, path);
+    
+    // Parse headers for session cookie
+    char *cookie = strstr(buffer, "Cookie: session=");
+    char session_id[128] = {0};
+    if (cookie) {
+        sscanf(cookie, "Cookie: session=%32s", session_id);
+    }
+    
+    char response[BUFFER_SIZE * 2];
+    
+    if (strcmp(path, "/api/login") == 0 && strcmp(method, "POST") == 0) {
+        // Handle login
+        char *body = strstr(buffer, "\r\n\r\n");
+        if (body) {
+            body += 4;
+            char username[64] = {0};
+            char password[64] = {0};
+            
+            // Simple JSON parsing
+            char *user_start = strstr(body, "\"username\"");
+            char *pass_start = strstr(body, "\"password\"");
+            
+            if (user_start && pass_start) {
+                sscanf(user_start, "\"username\":\"%63[^\"]\"", username);
+                sscanf(pass_start, "\"password\":\"%63[^\"]\"", password);
+                
+                if (verify_credentials(username, password)) {
+                    char *sid = create_session(username);
+                    if (sid) {
+                        snprintf(response, sizeof(response),
+                            "HTTP/1.1 200 OK\r\n"
+                            "Content-Type: application/json\r\n"
+                            "Set-Cookie: session=%s; Path=/; HttpOnly\r\n"
+                            "Access-Control-Allow-Origin: *\r\n"
+                            "\r\n"
+                            "{\"status\":\"success\",\"session\":\"%s\",\"username\":\"%s\"}",
+                            sid, sid, username);
+                    } else {
+                        snprintf(response, sizeof(response),
+                            "HTTP/1.1 500 Internal Server Error\r\n"
+                            "Content-Type: application/json\r\n"
+                            "Access-Control-Allow-Origin: *\r\n"
+                            "\r\n"
+                            "{\"status\":\"error\",\"message\":\"Session creation failed\"}");
+                    }
+                } else {
+                    snprintf(response, sizeof(response),
+                        "HTTP/1.1 401 Unauthorized\r\n"
+                        "Content-Type: application/json\r\n"
+                        "Access-Control-Allow-Origin: *\r\n"
+                        "\r\n"
+                        "{\"status\":\"error\",\"message\":\"Invalid credentials\"}");
+                }
+            }
+        }
+    } else if (strcmp(path, "/api/verify") == 0) {
+        // Verify session
+        if (validate_session(session_id)) {
+            snprintf(response, sizeof(response),
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: application/json\r\n"
+                "Access-Control-Allow-Origin: *\r\n"
+                "\r\n"
+                "{\"status\":\"success\",\"authenticated\":true}");
+        } else {
+            snprintf(response, sizeof(response),
+                "HTTP/1.1 401 Unauthorized\r\n"
+                "Content-Type: application/json\r\n"
+                "Access-Control-Allow-Origin: *\r\n"
+                "\r\n"
+                "{\"status\":\"error\",\"authenticated\":false}");
+        }
+    } else if (strcmp(path, "/api/logout") == 0) {
+        // Handle logout
+        for (int i = 0; i < session_count; i++) {
+            if (sessions[i].active && strcmp(sessions[i].session_id, session_id) == 0) {
+                sessions[i].active = 0;
+            }
+        }
+        snprintf(response, sizeof(response),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: application/json\r\n"
+            "Set-Cookie: session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
+            "\r\n"
+            "{\"status\":\"success\",\"message\":\"Logged out\"}");
+    } else {
+        snprintf(response, sizeof(response),
+            "HTTP/1.1 404 Not Found\r\n"
+            "Content-Type: application/json\r\n"
+            "\r\n"
+            "{\"status\":\"error\",\"message\":\"Not found\"}");
+    }
+    
+    write(client_fd, response, strlen(response));
+    close(client_fd);
+}
+
+int main() {
+    signal(SIGCHLD, SIG_IGN);
+    
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd < 0) {
+        perror("Socket creation failed");
+        return 1;
+    }
+    
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(PORT);
+    
+    if (bind(server_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        perror("Bind failed");
+        return 1;
+    }
+    
+    if (listen(server_fd, 10) < 0) {
+        perror("Listen failed");
+        return 1;
+    }
+    
+    printf("Auth server running on port %d\n", PORT);
+    
+    while (1) {
+        struct sockaddr_in client_addr;
+        socklen_t client_len = sizeof(client_addr);
+        int client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
+        
+        if (client_fd < 0) continue;
+        
+        if (fork() == 0) {
+            close(server_fd);
+            handle_request(client_fd);
+            exit(0);
+        }
+        
+        close(client_fd);
+    }
+    
+    return 0;
+}
+CEOF
+
+    gcc -O3 -o /usr/local/bin/slowdns-auth-server /tmp/auth_server.c 2>/dev/null
+    
+    if [ $? -eq 0 ]; then
+        chmod +x /usr/local/bin/slowdns-auth-server
+        print_success "Authentication server compiled successfully"
+        log_message "Auth server compiled successfully"
+    else
+        print_error "Auth server compilation failed, using Python fallback"
+        log_message "Auth server compilation failed"
+    fi
+}
+
+# ============================================================================
+# CREATE ENHANCED DASHBOARD WITH LOGIN
+# ============================================================================
+create_dashboard() {
+    print_step "4"
+    print_info "Creating Enhanced Management Dashboard with Login"
+    
+    mkdir -p /etc/slowdns/dashboard
+    
+    # Create login page
+    cat > /etc/slowdns/dashboard/login.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ELITE-X | Login</title>
+    <title>ELITE-X8 SlowDNS - Login</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             display: flex;
-            align-items: center;
             justify-content: center;
+            align-items: center;
         }
         .login-container {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(20px);
-            border-radius: 24px;
-            padding: 50px 40px;
-            width: 100%;
-            max-width: 420px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.3);
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            width: 400px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }
         .logo {
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 30px;
         }
         .logo h1 {
-            color: #ffd700;
-            font-size: 2.2em;
-            font-weight: 800;
-            letter-spacing: 2px;
+            color: white;
+            font-size: 2em;
+            margin-bottom: 10px;
         }
         .logo p {
-            color: rgba(255, 255, 255, 0.6);
-            font-size: 0.9em;
-            margin-top: 8px;
+            color: rgba(255, 255, 255, 0.7);
         }
         .form-group {
-            margin-bottom: 25px;
+            margin-bottom: 20px;
         }
         .form-group label {
+            color: white;
             display: block;
-            color: rgba(255, 255, 255, 0.8);
-            margin-bottom: 8px;
-            font-weight: 500;
-            font-size: 0.9em;
+            margin-bottom: 5px;
         }
         .form-group input {
             width: 100%;
-            padding: 14px 18px;
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 12px;
+            padding: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.1);
             color: white;
             font-size: 1em;
-            transition: all 0.3s;
-            outline: none;
-        }
-        .form-group input:focus {
-            border-color: #ffd700;
-            box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.1);
         }
         .form-group input::placeholder {
-            color: rgba(255, 255, 255, 0.3);
+            color: rgba(255, 255, 255, 0.5);
         }
         .login-btn {
             width: 100%;
-            padding: 14px;
-            background: linear-gradient(135deg, #ffd700, #ff8c00);
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border: none;
-            border-radius: 12px;
-            color: #1a1a2e;
+            border-radius: 10px;
+            color: white;
             font-size: 1.1em;
-            font-weight: 700;
             cursor: pointer;
-            transition: all 0.3s;
-            margin-top: 10px;
+            transition: transform 0.3s;
         }
         .login-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 10px 30px rgba(255, 215, 0, 0.3);
         }
-        .error-msg {
-            background: rgba(255, 0, 0, 0.1);
-            border: 1px solid rgba(255, 0, 0, 0.3);
-            border-radius: 10px;
-            padding: 12px 15px;
+        .error-message {
             color: #ff6b6b;
-            margin-bottom: 20px;
-            font-size: 0.9em;
             text-align: center;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 30px;
-            color: rgba(255, 255, 255, 0.4);
-            font-size: 0.8em;
+            margin-top: 10px;
+            display: none;
         }
     </style>
 </head>
 <body>
     <div class="login-container">
         <div class="logo">
-            <h1>🚀 ELITE-X</h1>
-            <p>Advanced DNS Tunnel Management</p>
+            <h1>🚀 ELITE-X8</h1>
+            <p>SlowDNS Management System</p>
         </div>
-        
-        {% if error %}
-        <div class="error-msg">{{ error }}</div>
-        {% endif %}
-        
-        <form method="POST" action="/login">
+        <form id="loginForm">
             <div class="form-group">
-                <label for="username">👤 Username</label>
-                <input type="text" id="username" name="username" placeholder="Enter username" required autofocus>
+                <label for="username">Username</label>
+                <input type="text" id="username" placeholder="Enter username" required>
             </div>
             <div class="form-group">
-                <label for="password">🔒 Password</label>
-                <input type="password" id="password" name="password" placeholder="Enter password" required>
+                <label for="password">Password</label>
+                <input type="password" id="password" placeholder="Enter password" required>
             </div>
-            <button type="submit" class="login-btn">🔓 Sign In</button>
+            <button type="submit" class="login-btn">Sign In</button>
         </form>
-        
-        <div class="footer">
-            <p>© 2026 ELITE-X • Secure Panel</p>
-        </div>
+        <div class="error-message" id="errorMessage"></div>
     </div>
+    
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('errorMessage');
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    window.location.href = '/dashboard';
+                } else {
+                    errorDiv.textContent = data.message || 'Invalid credentials';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Connection error. Please try again.';
+                errorDiv.style.display = 'block';
+            }
+        });
+    </script>
 </body>
 </html>
 HTMLEOF
 
-    # Dashboard Page
-    cat > "$PANEL_DIR/templates/dashboard.html" << 'HTMLEOF'
+    # Create main dashboard
+    cat > /etc/slowdns/dashboard/index.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ELITE-X | Dashboard</title>
+    <title>ELITE-X8 SlowDNS Dashboard</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #e0e0e0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
             min-height: 100vh;
+            color: white;
         }
         
         /* Sidebar */
@@ -811,748 +601,966 @@ HTMLEOF
             position: fixed;
             left: 0;
             top: 0;
-            bottom: 0;
-            width: 260px;
-            background: #16213e;
+            width: 250px;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
             padding: 20px;
-            overflow-y: auto;
-            border-right: 1px solid rgba(255, 255, 255, 0.05);
-            z-index: 100;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
         }
-        .sidebar-logo {
-            padding: 20px 0;
+        
+        .sidebar-header {
             text-align: center;
+            padding: 20px 0;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            margin-bottom: 30px;
+            margin-bottom: 20px;
         }
-        .sidebar-logo h2 {
-            color: #ffd700;
-            font-size: 1.6em;
-            font-weight: 800;
+        
+        .sidebar-header h2 {
+            font-size: 1.5em;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
-        .sidebar-logo span {
-            color: rgba(255, 255, 255, 0.5);
-            font-size: 0.8em;
+        
+        .sidebar-menu {
+            list-style: none;
         }
-        .nav-menu { list-style: none; }
-        .nav-menu li { margin-bottom: 5px; }
-        .nav-menu li a {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 18px;
+        
+        .sidebar-menu li {
+            margin-bottom: 10px;
+        }
+        
+        .sidebar-menu a {
             color: rgba(255, 255, 255, 0.7);
             text-decoration: none;
+            padding: 12px 15px;
+            display: block;
             border-radius: 10px;
             transition: all 0.3s;
-            cursor: pointer;
         }
-        .nav-menu li a:hover, .nav-menu li a.active {
-            background: rgba(255, 215, 0, 0.1);
-            color: #ffd700;
+        
+        .sidebar-menu a:hover,
+        .sidebar-menu a.active {
+            background: rgba(102, 126, 234, 0.2);
+            color: white;
         }
-        .nav-divider {
-            height: 1px;
-            background: rgba(255, 255, 255, 0.05);
-            margin: 20px 0;
+        
+        .sidebar-menu .icon {
+            margin-right: 10px;
         }
         
         /* Main Content */
         .main-content {
-            margin-left: 260px;
+            margin-left: 250px;
             padding: 30px;
         }
         
-        /* Top Bar */
         .top-bar {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
         }
-        .top-bar h1 {
-            font-size: 1.8em;
-            color: white;
+        
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
         }
+        
         .logout-btn {
             padding: 10px 20px;
-            background: rgba(255, 0, 0, 0.1);
+            background: rgba(255, 0, 0, 0.2);
             border: 1px solid rgba(255, 0, 0, 0.3);
+            border-radius: 10px;
             color: #ff6b6b;
-            border-radius: 8px;
-            text-decoration: none;
-            transition: all 0.3s;
+            cursor: pointer;
         }
-        .logout-btn:hover { background: rgba(255, 0, 0, 0.2); }
         
-        /* Stats Grid */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
         }
+        
         .stat-card {
-            background: #16213e;
-            padding: 20px;
-            border-radius: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            transition: transform 0.3s;
-        }
-        .stat-card:hover { transform: translateY(-3px); }
-        .stat-card .label {
-            font-size: 0.85em;
-            color: rgba(255, 255, 255, 0.5);
-            margin-bottom: 8px;
-        }
-        .stat-card .value {
-            font-size: 1.6em;
-            font-weight: 700;
-        }
-        .value.gold { color: #ffd700; }
-        .value.green { color: #48bb78; }
-        .value.red { color: #ff6b6b; }
-        .value.blue { color: #63b3ed; }
-        .value.purple { color: #b794f4; }
-        
-        /* Service Status */
-        .services-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-bottom: 30px;
-        }
-        .service-badge {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 12px 15px;
-            background: #16213e;
-            border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        .status-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-        }
-        .status-dot.active { background: #48bb78; }
-        .status-dot.inactive { background: #ff6b6b; }
-        
-        /* Panel */
-        .panel {
-            background: #16213e;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
             border-radius: 15px;
             padding: 25px;
-            margin-bottom: 30px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        .panel h2 {
-            color: #ffd700;
-            margin-bottom: 20px;
-            font-size: 1.3em;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.3s;
         }
         
-        /* Table */
-        .table-container { overflow-x: auto; }
-        table {
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .stat-card h3 {
+            font-size: 0.9em;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 15px;
+        }
+        
+        .stat-card .value {
+            font-size: 2.5em;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .panel {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .panel h3 {
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+        
+        .button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1em;
+            margin: 5px;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary { background: #667eea; color: white; }
+        .btn-success { background: #48bb78; color: white; }
+        .btn-danger { background: #f56565; color: white; }
+        .btn-warning { background: #ecc94b; color: black; }
+        
+        .button:hover {
+            opacity: 0.8;
+            transform: translateY(-2px);
+        }
+        
+        .logs {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            color: #0f0;
+            font-family: monospace;
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .public-key {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 15px;
+            color: #ffd700;
+            font-family: monospace;
+            word-break: break-all;
+            margin-top: 10px;
+        }
+        
+        .user-table {
             width: 100%;
             border-collapse: collapse;
         }
-        thead th {
-            background: rgba(255, 255, 255, 0.03);
-            padding: 12px 15px;
+        
+        .user-table th,
+        .user-table td {
+            padding: 12px;
             text-align: left;
-            color: rgba(255, 255, 255, 0.6);
-            font-size: 0.85em;
-            font-weight: 500;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
-        tbody td {
-            padding: 12px 15px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-            font-size: 0.9em;
-        }
-        tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
         
-        .badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8em;
-            font-weight: 600;
+        .user-table th {
+            color: #667eea;
         }
-        .badge-online { background: rgba(72, 187, 120, 0.15); color: #48bb78; }
-        .badge-offline { background: rgba(255, 255, 255, 0.05); color: rgba(255, 255, 255, 0.4); }
-        .badge-expired { background: rgba(255, 107, 107, 0.15); color: #ff6b6b; }
-        .badge-locked { background: rgba(255, 0, 0, 0.2); color: #ff0000; }
-        .badge-warning { background: rgba(255, 215, 0, 0.1); color: #ffd700; }
         
-        /* Buttons */
-        .btn {
-            padding: 6px 14px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.8em;
-            font-weight: 600;
-            transition: all 0.3s;
-            margin: 2px;
-        }
-        .btn-sm { padding: 4px 10px; font-size: 0.75em; }
-        .btn-danger { background: rgba(255, 0, 0, 0.1); color: #ff6b6b; border: 1px solid rgba(255, 0, 0, 0.2); }
-        .btn-danger:hover { background: rgba(255, 0, 0, 0.2); }
-        .btn-warning { background: rgba(255, 215, 0, 0.1); color: #ffd700; border: 1px solid rgba(255, 215, 0, 0.2); }
-        .btn-warning:hover { background: rgba(255, 215, 0, 0.2); }
-        .btn-success { background: rgba(72, 187, 120, 0.1); color: #48bb78; border: 1px solid rgba(72, 187, 120, 0.2); }
-        .btn-success:hover { background: rgba(72, 187, 120, 0.2); }
-        .btn-info { background: rgba(99, 179, 237, 0.1); color: #63b3ed; border: 1px solid rgba(99, 179, 237, 0.2); }
-        .btn-info:hover { background: rgba(99, 179, 237, 0.2); }
-        .btn-primary {
-            background: linear-gradient(135deg, #ffd700, #ff8c00);
-            color: #1a1a2e;
-            font-weight: 700;
-            border: none;
-        }
-        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3); }
+        .status-active { color: #48bb78; }
+        .status-inactive { color: #f56565; }
         
-        /* Modal */
         .modal {
             display: none;
             position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0, 0, 0, 0.7);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-        }
-        .modal.active { display: flex; }
-        .modal-content {
-            background: #16213e;
-            border-radius: 20px;
-            padding: 30px;
-            width: 90%;
-            max-width: 450px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        .modal-content h2 { color: #ffd700; margin-bottom: 20px; }
-        .modal-content input, .modal-content select {
+            top: 0;
+            left: 0;
             width: 100%;
-            padding: 12px 15px;
-            margin-bottom: 15px;
-            background: rgba(255, 255, 255, 0.05);
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-content {
+            background: #1a1a2e;
+            padding: 30px;
+            border-radius: 15px;
+            width: 400px;
             border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .modal-content input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
             border-radius: 8px;
             color: white;
-            font-size: 0.95em;
-            outline: none;
         }
-        .modal-content input:focus { border-color: #ffd700; }
-        .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
-        .modal-actions button { flex: 1; padding: 12px; }
         
-        /* Toast */
-        .toast {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 15px 20px;
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 10px;
-            color: white;
-            font-weight: 600;
-            z-index: 2000;
-            opacity: 0;
-            transform: translateX(100%);
-            transition: all 0.3s;
+            cursor: pointer;
         }
-        .toast.show { opacity: 1; transform: translateX(0); }
-        .toast-success { background: #48bb78; }
-        .toast-error { background: #ff6b6b; }
         
-        /* Responsive */
-        @media (max-width: 768px) {
-            .sidebar { width: 200px; }
-            .main-content { margin-left: 200px; padding: 20px; }
-            .stats-grid { grid-template-columns: repeat(2, 1fr); }
-        }
-        @media (max-width: 480px) {
-            .sidebar { width: 60px; padding: 10px; }
-            .sidebar-logo h2 { font-size: 0.9em; }
-            .nav-menu li a span { display: none; }
-            .main-content { margin-left: 60px; padding: 15px; }
+        .tab.active {
+            background: #667eea;
         }
     </style>
 </head>
 <body>
-    
-    <!-- Sidebar -->
     <div class="sidebar">
-        <div class="sidebar-logo">
-            <h2>🚀 ELITE-X</h2>
-            <span>v3.2.2 Panel</span>
+        <div class="sidebar-header">
+            <h2>🚀 ELITE-X8</h2>
+            <p style="color: rgba(255,255,255,0.5);">SlowDNS Panel</p>
         </div>
-        <ul class="nav-menu">
-            <li><a class="active" onclick="showSection('dashboard')">📊 Dashboard</a></li>
-            <li><a onclick="showSection('users')">👥 Users</a></li>
-            <li><a onclick="showSection('add-user')">➕ Add User</a></li>
-            <li><a onclick="showSection('settings')">⚙️ Settings</a></li>
-            <div class="nav-divider"></div>
-            <li><a onclick="showSection('traffic')">📈 Traffic</a></li>
-            <div class="nav-divider"></div>
-            <li><a onclick="if(confirm('Reboot VPS?')) apiCall('/api/reboot')">🔄 Reboot</a></li>
-            <li><a onclick="if(confirm('Uninstall completely?')) apiCall('/api/uninstall')">🗑️ Uninstall</a></li>
+        <ul class="sidebar-menu">
+            <li><a href="#" class="active" onclick="showSection('overview')"><span class="icon">📊</span> Overview</a></li>
+            <li><a href="#" onclick="showSection('service-control')"><span class="icon">🎮</span> Service Control</a></li>
+            <li><a href="#" onclick="showSection('user-management')"><span class="icon">👥</span> User Management</a></li>
+            <li><a href="#" onclick="showSection('server-config')"><span class="icon">⚙️</span> Server Config</a></li>
+            <li><a href="#" onclick="showSection('logs-monitor')"><span class="icon">📋</span> Logs & Monitor</a></li>
+            <li><a href="#" onclick="showSection('ssh-manager')"><span class="icon">🔐</span> SSH Manager</a></li>
         </ul>
     </div>
     
-    <!-- Main Content -->
     <div class="main-content">
-        
-        <!-- Top Bar -->
         <div class="top-bar">
-            <h1>Welcome, <span style="color:#ffd700;">Admin</span></h1>
-            <a href="/logout" class="logout-btn">🚪 Logout</a>
+            <h1 id="sectionTitle">📊 Overview</h1>
+            <div class="user-info">
+                <span id="currentUser">User</span>
+                <button class="logout-btn" onclick="logout()">🚪 Logout</button>
+            </div>
         </div>
         
-        <!-- Toast -->
-        <div class="toast" id="toast"></div>
-        
-        <!-- Dashboard Section -->
-        <div id="section-dashboard">
-            <!-- Stats -->
+        <!-- Overview Section -->
+        <div id="overview" class="section">
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="label">🌐 Server IP</div>
-                    <div class="value blue">{{ info.ip }}</div>
+                    <h3>SERVER STATUS</h3>
+                    <div class="value" id="serverStatus">Online</div>
                 </div>
                 <div class="stat-card">
-                    <div class="label">🔗 Nameserver</div>
-                    <div class="value purple">{{ info.ns }}</div>
+                    <h3>SLOWDNS PORT</h3>
+                    <div class="value" id="slowdnsPort">5300</div>
                 </div>
                 <div class="stat-card">
-                    <div class="label">👥 Total Users</div>
-                    <div class="value gold">{{ users|length }}</div>
+                    <h3>SSH PORT</h3>
+                    <div class="value" id="sshPort">22</div>
                 </div>
                 <div class="stat-card">
-                    <div class="label">🔌 Active Connections</div>
-                    <div class="value green">{{ info.connections }}</div>
+                    <h3>ACTIVE CONNECTIONS</h3>
+                    <div class="value" id="connections">0</div>
                 </div>
                 <div class="stat-card">
-                    <div class="label">💾 RAM Usage</div>
-                    <div class="value blue">{{ info.ram }}</div>
+                    <h3>TOTAL USERS</h3>
+                    <div class="value" id="totalUsers">0</div>
                 </div>
                 <div class="stat-card">
-                    <div class="label">⚡ BBR Status</div>
-                    <div class="value {% if info.bbr == 'ACTIVE' %}green{% else %}red{% endif %}">{{ info.bbr }}</div>
-                </div>
-                <div class="stat-card">
-                    <div class="label">🚫 Auto-Ban</div>
-                    <div class="value {% if info.autoban %}red{% else %}green{% endif %}">
-                        {{ 'ENABLED' if info.autoban else 'DISABLED' }}
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="label">⏱️ Uptime</div>
-                    <div class="value blue" style="font-size:1.1em;">{{ info.uptime }}</div>
+                    <h3>UPTIME</h3>
+                    <div class="value" id="uptime">0h</div>
                 </div>
             </div>
             
-            <!-- Services -->
             <div class="panel">
-                <h2>🔧 Services Status</h2>
-                <div class="services-grid">
-                    {% for svc, status in info.services.items() %}
-                    <div class="service-badge">
-                        <span class="status-dot {{ 'active' if status == 'active' else 'inactive' }}"></span>
-                        <span>{{ svc }}</span>
-                    </div>
-                    {% endfor %}
-                </div>
+                <h3>🔑 Public Key (Copy for client configuration)</h3>
+                <div class="public-key" id="publicKey">Loading...</div>
             </div>
         </div>
         
-        <!-- Users Section -->
-        <div id="section-users" style="display:none;">
+        <!-- Service Control Section -->
+        <div id="service-control" class="section" style="display:none;">
             <div class="panel">
-                <h2>👥 User List</h2>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Username</th>
-                                <th>Password</th>
-                                <th>Expire</th>
-                                <th>Login</th>
-                                <th>Data (GB)</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for user in users %}
-                            <tr>
-                                <td><strong>{{ user.username }}</strong></td>
-                                <td><code>{{ user.password }}</code></td>
-                                <td>
-                                    {% if user.days_left < 0 %}
-                                    <span style="color:#ff6b6b;">{{ user.expire }}</span>
-                                    {% elif user.days_left < 3 %}
-                                    <span style="color:#ff6b6b;">{{ user.expire }} ({{ user.days_left }}d)</span>
-                                    {% elif user.days_left < 7 %}
-                                    <span style="color:#ffd700;">{{ user.expire }} ({{ user.days_left }}d)</span>
-                                    {% else %}
-                                    <span style="color:#48bb78;">{{ user.expire }} ({{ user.days_left }}d)</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ user.current_conn }}/{{ user.conn_limit }}</td>
-                                <td>{{ user.usage.total }} GB</td>
-                                <td>
-                                    {% if user.status == 'online' %}
-                                    <span class="badge badge-online">🟢 Online</span>
-                                    {% elif user.status == 'locked' %}
-                                    <span class="badge badge-locked">🔒 Locked</span>
-                                    {% elif user.status == 'expired' %}
-                                    <span class="badge badge-expired">⛔ Expired</span>
-                                    {% else %}
-                                    <span class="badge badge-offline">⚫ Offline</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <button class="btn btn-sm btn-info" onclick="renewUser('{{ user.username }}')">🔄 Renew</button>
-                                    <button class="btn btn-sm btn-warning" onclick="setLimit('{{ user.username }}')">⚡ Limit</button>
-                                    <button class="btn btn-sm btn-success" onclick="resetUsage('{{ user.username }}')">📊 Reset</button>
-                                    {% if user.status == 'locked' %}
-                                    <button class="btn btn-sm btn-warning" onclick="unlockUser('{{ user.username }}')">🔓 Unlock</button>
-                                    {% else %}
-                                    <button class="btn btn-sm btn-warning" onclick="lockUser('{{ user.username }}')">🔒 Lock</button>
-                                    {% endif %}
-                                    <button class="btn btn-sm btn-danger" onclick="deleteUser('{{ user.username }}')">❌ Delete</button>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                            {% if not users %}
-                            <tr><td colspan="7" style="text-align:center;color:rgba(255,255,255,0.3);padding:30px;">No users found</td></tr>
-                            {% endif %}
-                        </tbody>
-                    </table>
-                </div>
+                <h3>🎮 Service Controls</h3>
+                <button class="button btn-success" onclick="controlService('start','server-sldns')">▶ Start SlowDNS</button>
+                <button class="button btn-danger" onclick="controlService('stop','server-sldns')">⏹ Stop SlowDNS</button>
+                <button class="button btn-warning" onclick="controlService('restart','server-sldns')">🔄 Restart SlowDNS</button>
+                <br><br>
+                <button class="button btn-success" onclick="controlService('start','edns-proxy')">▶ Start EDNS Proxy</button>
+                <button class="button btn-danger" onclick="controlService('stop','edns-proxy')">⏹ Stop EDNS Proxy</button>
+                <button class="button btn-warning" onclick="controlService('restart','edns-proxy')">🔄 Restart EDNS Proxy</button>
             </div>
         </div>
         
-        <!-- Add User Section -->
-        <div id="section-add-user" style="display:none;">
-            <div class="panel" style="max-width:500px;">
-                <h2>➕ Create New User</h2>
-                <form onsubmit="addUser(event)">
-                    <input type="text" id="new-username" placeholder="Username" required>
-                    <input type="password" id="new-password" placeholder="Password" required style="margin-top:10px;">
-                    <input type="number" id="new-days" placeholder="Expire Days (default: 30)" value="30" style="margin-top:10px;">
-                    <input type="number" id="new-limit" placeholder="Connection Limit (default: 1)" value="1" style="margin-top:10px;">
-                    <button type="submit" class="btn btn-primary" style="width:100%;padding:12px;margin-top:10px;">
-                        ➕ Create User
-                    </button>
-                </form>
-                <div id="add-user-result" style="margin-top:20px;"></div>
-            </div>
-        </div>
-        
-        <!-- Settings Section -->
-        <div id="section-settings" style="display:none;">
+        <!-- User Management Section -->
+        <div id="user-management" class="section" style="display:none;">
             <div class="panel">
-                <h2>⚙️ System Settings</h2>
-                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px;">
-                    <button class="btn btn-success" onclick="apiCall('/api/apply_speed')" style="padding:15px;">⚡ Apply Turbo Boost</button>
-                    <button class="btn btn-warning" onclick="apiCall('/api/restart_services')" style="padding:15px;">🔄 Restart Services</button>
-                    <button class="btn btn-info" onclick="showMTUModal()" style="padding:15px;">📡 Change MTU (Current: {{ info.mtu }})</button>
-                    <button class="btn btn-{{ 'danger' if info.autoban else 'success' }}" onclick="apiCall('/api/toggle_autoban')" style="padding:15px;">
-                        🚫 {{ 'Disable' if info.autoban else 'Enable' }} Auto-Ban
-                    </button>
-                </div>
+                <h3>👥 User Management</h3>
+                <button class="button btn-primary" onclick="openAddUserModal()">➕ Add New User</button>
+                <br><br>
+                <div id="usersList"></div>
             </div>
         </div>
         
-        <!-- Traffic Section -->
-        <div id="section-traffic" style="display:none;">
+        <!-- Server Config Section -->
+        <div id="server-config" class="section" style="display:none;">
             <div class="panel">
-                <h2>📈 User Data Usage</h2>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Username</th>
-                                <th>Download (GB)</th>
-                                <th>Upload (GB)</th>
-                                <th>Total (GB)</th>
-                                <th>Month</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for user in users %}
-                            <tr>
-                                <td>{{ user.username }}</td>
-                                <td>{{ user.usage.rx }} GB</td>
-                                <td>{{ user.usage.tx }} GB</td>
-                                <td><strong>{{ user.usage.total }} GB</strong></td>
-                                <td>{{ user.usage.month }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                <h3>⚙️ Server Configuration</h3>
+                <div id="serverConfigInfo"></div>
             </div>
         </div>
         
-    </div>
-    
-    <!-- MTU Modal -->
-    <div class="modal" id="mtuModal">
-        <div class="modal-content">
-            <h2>📡 Change MTU Value</h2>
-            <input type="number" id="mtu-value" placeholder="Enter MTU (1000-5000)" min="1000" max="5000">
-            <div class="modal-actions">
-                <button class="btn btn-primary" onclick="changeMTU()">Apply</button>
-                <button class="btn btn-danger" onclick="closeModal('mtuModal')">Cancel</button>
+        <!-- Logs Section -->
+        <div id="logs-monitor" class="section" style="display:none;">
+            <div class="panel">
+                <h3>📋 Service Logs</h3>
+                <div class="tabs">
+                    <div class="tab active" onclick="loadLogs('slowdns')">SlowDNS</div>
+                    <div class="tab" onclick="loadLogs('edns')">EDNS Proxy</div>
+                    <div class="tab" onclick="loadLogs('system')">System</div>
+                </div>
+                <div class="logs" id="logs"></div>
+            </div>
+        </div>
+        
+        <!-- SSH Manager Section -->
+        <div id="ssh-manager" class="section" style="display:none;">
+            <div class="panel">
+                <h3>🔐 SSH Manager</h3>
+                <div id="sshInfo"></div>
             </div>
         </div>
     </div>
     
-    <!-- Renew Modal -->
-    <div class="modal" id="renewModal">
+    <!-- Add User Modal -->
+    <div class="modal" id="addUserModal">
         <div class="modal-content">
-            <h2>🔄 Renew User</h2>
-            <input type="hidden" id="renew-username">
-            <input type="number" id="renew-days" placeholder="Additional days" value="30">
-            <div class="modal-actions">
-                <button class="btn btn-primary" onclick="renewUserConfirm()">Renew</button>
-                <button class="btn btn-danger" onclick="closeModal('renewModal')">Cancel</button>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Limit Modal -->
-    <div class="modal" id="limitModal">
-        <div class="modal-content">
-            <h2>⚡ Set Connection Limit</h2>
-            <input type="hidden" id="limit-username">
-            <input type="number" id="limit-value" placeholder="Max connections (1-10)" min="1" max="10">
-            <div class="modal-actions">
-                <button class="btn btn-primary" onclick="setLimitConfirm()">Apply</button>
-                <button class="btn btn-danger" onclick="closeModal('limitModal')">Cancel</button>
-            </div>
+            <h3>Add New User</h3>
+            <input type="text" id="newUsername" placeholder="Username">
+            <input type="password" id="newPassword" placeholder="Password">
+            <select id="newUserRole" style="width:100%;padding:10px;margin:10px 0;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);border-radius:8px;color:white;">
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+            </select>
+            <button class="button btn-success" onclick="addNewUser()">Create User</button>
+            <button class="button btn-danger" onclick="closeModal('addUserModal')">Cancel</button>
         </div>
     </div>
     
     <script>
+        let currentSection = 'overview';
+        
+        // Check authentication on load
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/verify');
+                const data = await response.json();
+                
+                if (!data.authenticated) {
+                    window.location.href = '/login';
+                }
+            } catch (error) {
+                window.location.href = '/login';
+            }
+        }
+        
         // Show section
-        function showSection(name) {
-            document.querySelectorAll('[id^="section-"]').forEach(el => el.style.display = 'none');
-            const section = document.getElementById('section-' + name);
-            if (section) section.style.display = 'block';
+        function showSection(section) {
+            document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
+            document.getElementById(section).style.display = 'block';
             
-            // Update active nav
-            document.querySelectorAll('.nav-menu li a').forEach(a => a.classList.remove('active'));
-            event.target.classList.add('active');
-            
-            // Refresh dashboard
-            if (name === 'dashboard' || name === 'users') location.reload();
-        }
-        
-        // Toast
-        function showToast(msg, type) {
-            const toast = document.getElementById('toast');
-            toast.textContent = msg;
-            toast.className = 'toast toast-' + type + ' show';
-            setTimeout(() => toast.classList.remove('show'), 3000);
-        }
-        
-        // API call helper
-        function apiCall(url, data = {}, method = 'POST') {
-            const formData = new FormData();
-            for (let key in data) formData.append(key, data[key]);
-            
-            fetch(url, { method, body: formData })
-                .then(r => r.json())
-                .then(res => {
-                    showToast(res.message, res.success ? 'success' : 'error');
-                    if (res.success) setTimeout(() => location.reload(), 1500);
-                })
-                .catch(err => showToast('Error: ' + err, 'error'));
-        }
-        
-        // Add user
-        function addUser(e) {
-            e.preventDefault();
-            const data = {
-                username: document.getElementById('new-username').value,
-                password: document.getElementById('new-password').value,
-                days: document.getElementById('new-days').value,
-                conn_limit: document.getElementById('new-limit').value
+            const titles = {
+                'overview': '📊 Overview',
+                'service-control': '🎮 Service Control',
+                'user-management': '👥 User Management',
+                'server-config': '⚙️ Server Configuration',
+                'logs-monitor': '📋 Logs & Monitor',
+                'ssh-manager': '🔐 SSH Manager'
             };
             
-            fetch('/api/add_user', { method: 'POST', body: new URLSearchParams(data) })
-                .then(r => r.json())
-                .then(res => {
-                    if (res.success) {
-                        let html = '<div style="background:rgba(72,187,120,0.1);padding:15px;border-radius:10px;">';
-                        html += '<h3 style="color:#48bb78;">✅ User Created!</h3>';
-                        html += '<p>Username: <strong>' + res.user.username + '</strong></p>';
-                        html += '<p>Password: <strong>' + res.user.password + '</strong></p>';
-                        html += '<p>NS: <strong>' + res.user.ns + '</strong></p>';
-                        html += '<p>Expire: <strong>' + res.user.expire + '</strong></p>';
-                        html += '<p>Limit: <strong>' + res.user.conn_limit + ' connections</strong></p>';
-                        html += '</div>';
-                        document.getElementById('add-user-result').innerHTML = html;
-                    } else {
-                        showToast(res.message, 'error');
-                    }
+            document.getElementById('sectionTitle').textContent = titles[section] || section;
+            currentSection = section;
+            
+            // Update active menu
+            document.querySelectorAll('.sidebar-menu a').forEach(a => a.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+        
+        // Service control
+        async function controlService(action, service) {
+            try {
+                const response = await fetch('/api/service-control', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ action, service })
                 });
-        }
-        
-        // Delete user
-        function deleteUser(username) {
-            if (confirm('Delete user ' + username + '?')) {
-                apiCall('/api/delete_user', { username });
+                const data = await response.json();
+                alert(data.message);
+                refreshDashboard();
+            } catch (error) {
+                alert('Error: ' + error);
             }
         }
         
-        // Lock user
-        function lockUser(username) {
-            apiCall('/api/lock_user', { username });
+        // User management
+        function openAddUserModal() {
+            document.getElementById('addUserModal').style.display = 'flex';
         }
         
-        // Unlock user
-        function unlockUser(username) {
-            apiCall('/api/unlock_user', { username });
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
         }
         
-        // Reset usage
-        function resetUsage(username) {
-            apiCall('/api/reset_usage', { username });
-        }
-        
-        // Renew modal
-        function renewUser(username) {
-            document.getElementById('renew-username').value = username;
-            document.getElementById('renewModal').classList.add('active');
-        }
-        function renewUserConfirm() {
-            const username = document.getElementById('renew-username').value;
-            const days = document.getElementById('renew-days').value;
-            apiCall('/api/renew_user', { username, days });
-            closeModal('renewModal');
-        }
-        
-        // Limit modal
-        function setLimit(username) {
-            document.getElementById('limit-username').value = username;
-            document.getElementById('limitModal').classList.add('active');
-        }
-        function setLimitConfirm() {
-            const username = document.getElementById('limit-username').value;
-            const limit = document.getElementById('limit-value').value;
-            apiCall('/api/set_limit', { username, limit });
-            closeModal('limitModal');
-        }
-        
-        // MTU modal
-        function showMTUModal() {
-            document.getElementById('mtuModal').classList.add('active');
-        }
-        function changeMTU() {
-            const mtu = document.getElementById('mtu-value').value;
-            apiCall('/api/change_mtu', { mtu });
-            closeModal('mtuModal');
-        }
-        
-        // Close modal
-        function closeModal(id) {
-            document.getElementById(id).classList.remove('active');
-        }
-        
-        // Close modal on outside click
-        document.addEventListener('click', function(e) {
-            if (e.target.classList.contains('modal')) {
-                e.target.classList.remove('active');
+        async function addNewUser() {
+            const username = document.getElementById('newUsername').value;
+            const password = document.getElementById('newPassword').value;
+            const role = document.getElementById('newUserRole').value;
+            
+            if (!username || !password) {
+                alert('Please fill all fields');
+                return;
             }
-        });
+            
+            try {
+                const response = await fetch('/api/add-user', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ username, password, role })
+                });
+                const data = await response.json();
+                alert(data.message);
+                closeModal('addUserModal');
+                loadUsers();
+            } catch (error) {
+                alert('Error: ' + error);
+            }
+        }
+        
+        async function removeUser(username) {
+            if (!confirm(`Remove user ${username}?`)) return;
+            
+            try {
+                const response = await fetch('/api/remove-user', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ username })
+                });
+                const data = await response.json();
+                alert(data.message);
+                loadUsers();
+            } catch (error) {
+                alert('Error: ' + error);
+            }
+        }
+        
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/list-users');
+                const data = await response.json();
+                
+                let html = '<table class="user-table"><tr><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr>';
+                
+                data.users.forEach(user => {
+                    html += `<tr>
+                        <td>${user.username}</td>
+                        <td>${user.role}</td>
+                        <td><span class="status-${user.status}">${user.status}</span></td>
+                        <td>
+                            <button class="button btn-warning" onclick="changePassword('${user.username}')">🔑 Password</button>
+                            <button class="button btn-danger" onclick="removeUser('${user.username}')">🗑 Remove</button>
+                        </td>
+                    </tr>`;
+                });
+                
+                html += '</table>';
+                document.getElementById('usersList').innerHTML = html;
+            } catch (error) {
+                document.getElementById('usersList').innerHTML = 'Error loading users';
+            }
+        }
+        
+        async function changePassword(username) {
+            const newPass = prompt(`Enter new password for ${username}:`);
+            if (!newPass) return;
+            
+            try {
+                const response = await fetch('/api/change-password', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ username, password: newPass })
+                });
+                const data = await response.json();
+                alert(data.message);
+            } catch (error) {
+                alert('Error: ' + error);
+            }
+        }
+        
+        // Logs
+        async function loadLogs(type) {
+            try {
+                const response = await fetch(`/api/logs?service=${type}`);
+                const data = await response.json();
+                document.getElementById('logs').innerHTML = data.logs || 'No logs available';
+            } catch (error) {
+                document.getElementById('logs').innerHTML = 'Error loading logs';
+            }
+        }
+        
+        // Refresh dashboard
+        async function refreshDashboard() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                document.getElementById('connections').textContent = data.connections || 0;
+                document.getElementById('publicKey').textContent = data.publicKey || 'Not available';
+                document.getElementById('totalUsers').textContent = data.totalUsers || 0;
+                document.getElementById('uptime').textContent = data.uptime || '0h';
+                
+                if (currentSection === 'user-management') loadUsers();
+                if (currentSection === 'logs-monitor') loadLogs('slowdns');
+            } catch (error) {
+                console.error('Refresh error:', error);
+            }
+        }
+        
+        // Logout
+        async function logout() {
+            await fetch('/api/logout', { method: 'POST' });
+            window.location.href = '/login';
+        }
+        
+        // Initialize
+        checkAuth();
+        refreshDashboard();
+        setInterval(refreshDashboard, 5000);
     </script>
 </body>
 </html>
 HTMLEOF
-    
-    echo -e "${GREEN}✓ Templates created${NC}"
-}
 
-# ============================================================================
-# CREATE SYSTEMD SERVICE
-# ============================================================================
-create_service() {
-    echo -e "${YELLOW}[5/5] Creating system service...${NC}"
+    # Create enhanced API server with user management
+    cat > /usr/local/bin/slowdns-api.py << 'APIEOF'
+#!/usr/bin/env python3
+import http.server
+import json
+import subprocess
+import os
+import sys
+import time
+import re
+from urllib.parse import urlparse, parse_qs
+
+USERS_DB = "/etc/slowdns/users.db"
+LOG_FILE = "/var/log/slowdns-install.log"
+
+def hash_password(password):
+    import hashlib
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verify_credentials(username, password):
+    try:
+        with open(USERS_DB, 'r') as f:
+            for line in f:
+                parts = line.strip().split(':')
+                if len(parts) >= 4 and parts[0] == username:
+                    stored_hash = parts[1]
+                    status = parts[3]
+                    if hash_password(password) == stored_hash and status == 'active':
+                        return True
+    except:
+        pass
+    return False
+
+def add_user_to_db(username, password, role='user'):
+    try:
+        with open(USERS_DB, 'r') as f:
+            if any(line.startswith(username + ':') for line in f):
+                return False, "User already exists"
+        
+        with open(USERS_DB, 'a') as f:
+            pass_hash = hash_password(password)
+            f.write(f"{username}:{pass_hash}:{role}:active:{int(time.time())}\n")
+        return True, "User created successfully"
+    except Exception as e:
+        return False, str(e)
+
+def remove_user_from_db(username):
+    try:
+        if username == 'elite-x':
+            return False, "Cannot remove admin user"
+        
+        with open(USERS_DB, 'r') as f:
+            lines = f.readlines()
+        
+        with open(USERS_DB, 'w') as f:
+            for line in lines:
+                if not line.startswith(username + ':'):
+                    f.write(line)
+        return True, "User removed successfully"
+    except Exception as e:
+        return False, str(e)
+
+def list_users_from_db():
+    users = []
+    try:
+        with open(USERS_DB, 'r') as f:
+            for line in f:
+                parts = line.strip().split(':')
+                if len(parts) >= 4:
+                    users.append({
+                        'username': parts[0],
+                        'role': parts[2],
+                        'status': parts[3]
+                    })
+    except:
+        pass
+    return users
+
+def change_user_password(username, new_password):
+    try:
+        with open(USERS_DB, 'r') as f:
+            lines = f.readlines()
+        
+        with open(USERS_DB, 'w') as f:
+            for line in lines:
+                parts = line.strip().split(':')
+                if parts[0] == username:
+                    new_hash = hash_password(new_password)
+                    f.write(f"{username}:{new_hash}:{parts[2]}:{parts[3]}:{parts[4]}\n")
+                else:
+                    f.write(line)
+        return True, "Password changed successfully"
+    except Exception as e:
+        return False, str(e)
+
+def get_system_status():
+    status = {
+        'connections': 0,
+        'publicKey': 'Not available',
+        'totalUsers': 0,
+        'uptime': '0h',
+        'slowdns_running': False,
+        'edns_running': False,
+        'dashboard_running': False
+    }
     
-    cat > /etc/systemd/system/elite-x-web.service << EOF
+    # Check services
+    try:
+        result = subprocess.run(['systemctl', 'is-active', 'server-sldns'], 
+                              capture_output=True, text=True)
+        status['slowdns_running'] = result.stdout.strip() == 'active'
+    except:
+        pass
+    
+    try:
+        result = subprocess.run(['systemctl', 'is-active', 'edns-proxy'], 
+                              capture_output=True, text=True)
+        status['edns_running'] = result.stdout.strip() == 'active'
+    except:
+        pass
+    
+    # Get connections
+    try:
+        result = subprocess.run(['ss', '-tn'], capture_output=True, text=True)
+        status['connections'] = len([l for l in result.stdout.split('\n') if ':22' in l or ':5300' in l])
+    except:
+        pass
+    
+    # Get public key
+    try:
+        with open('/etc/slowdns/server.pub', 'r') as f:
+            status['publicKey'] = f.read().strip()
+    except:
+        pass
+    
+    # Get users count
+    try:
+        with open(USERS_DB, 'r') as f:
+            status['totalUsers'] = len(f.readlines())
+    except:
+        pass
+    
+    # Get uptime
+    try:
+        with open('/proc/uptime', 'r') as f:
+            uptime_seconds = float(f.readline().split()[0])
+            hours = int(uptime_seconds // 3600)
+            minutes = int((uptime_seconds % 3600) // 60)
+            status['uptime'] = f"{hours}h {minutes}m"
+    except:
+        pass
+    
+    return status
+
+def control_service(action, service):
+    try:
+        subprocess.run(['systemctl', action, service], check=True)
+        return True, f"Service {service} {action}ed successfully"
+    except Exception as e:
+        return False, str(e)
+
+def get_logs(service='slowdns'):
+    try:
+        if service == 'slowdns':
+            result = subprocess.run(['journalctl', '-u', 'server-sldns', '--no-pager', '-n', '50'],
+                                  capture_output=True, text=True, timeout=5)
+        elif service == 'edns':
+            result = subprocess.run(['journalctl', '-u', 'edns-proxy', '--no-pager', '-n', '50'],
+                                  capture_output=True, text=True, timeout=5)
+        else:
+            result = subprocess.run(['tail', '-n', '50', LOG_FILE],
+                                  capture_output=True, text=True, timeout=5)
+        return result.stdout or 'No logs available'
+    except:
+        return 'Error fetching logs'
+
+def parse_cookies(headers):
+    cookies = {}
+    if 'Cookie' in headers:
+        for cookie in headers['Cookie'].split(';'):
+            if '=' in cookie:
+                key, value = cookie.strip().split('=', 1)
+                cookies[key.strip()] = value.strip()
+    return cookies
+
+class SlowDNSAPI(http.server.BaseHTTPRequestHandler):
+    
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+        
+        # Serve static files
+        if path == '/' or path == '/dashboard':
+            self.serve_file('/etc/slowdns/dashboard/index.html', 'text/html')
+        elif path == '/login':
+            self.serve_file('/etc/slowdns/dashboard/login.html', 'text/html')
+        elif path == '/api/status':
+            self.send_json_response(get_system_status())
+        elif path == '/api/list-users':
+            self.send_json_response({'users': list_users_from_db()})
+        elif path == '/api/logs':
+            service = parse_qs(parsed.query).get('service', ['slowdns'])[0]
+            self.send_json_response({'logs': get_logs(service)})
+        elif path == '/api/verify':
+            cookies = parse_cookies(self.headers)
+            if 'session' in cookies:
+                self.send_json_response({'authenticated': True})
+            else:
+                self.send_json_response({'authenticated': False}, 401)
+        else:
+            self.send_error(404)
+    
+    def do_POST(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        data = json.loads(post_data.decode() if post_data else '{}')
+        
+        parsed = urlparse(self.path)
+        path = parsed.path
+        
+        if path == '/api/login':
+            username = data.get('username', '')
+            password = data.get('password', '')
+            
+            if verify_credentials(username, password):
+                response = {
+                    'status': 'success',
+                    'session': 'active_session',
+                    'username': username
+                }
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Set-Cookie', 'session=active_session; Path=/; HttpOnly')
+                self.end_headers()
+                self.wfile.write(json.dumps(response).encode())
+            else:
+                self.send_json_response({'status': 'error', 'message': 'Invalid credentials'}, 401)
+        
+        elif path == '/api/logout':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Set-Cookie', 'session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT')
+            self.end_headers()
+            self.wfile.write(json.dumps({'status': 'success', 'message': 'Logged out'}).encode())
+        
+        elif path == '/api/add-user':
+            username = data.get('username', '')
+            password = data.get('password', '')
+            role = data.get('role', 'user')
+            
+            success, message = add_user_to_db(username, password, role)
+            self.send_json_response({'status': 'success' if success else 'error', 'message': message})
+        
+        elif path == '/api/remove-user':
+            username = data.get('username', '')
+            success, message = remove_user_from_db(username)
+            self.send_json_response({'status': 'success' if success else 'error', 'message': message})
+        
+        elif path == '/api/change-password':
+            username = data.get('username', '')
+            password = data.get('password', '')
+            
+            success, message = change_user_password(username, password)
+            self.send_json_response({'status': 'success' if success else 'error', 'message': message})
+        
+        elif path == '/api/service-control':
+            action = data.get('action', '')
+            service = data.get('service', '')
+            
+            success, message = control_service(action, service)
+            self.send_json_response({'status': 'success' if success else 'error', 'message': message})
+        
+        else:
+            self.send_error(404)
+    
+    def serve_file(self, filepath, content_type):
+        try:
+            with open(filepath, 'rb') as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_header('Content-Type', content_type)
+            self.end_headers()
+            self.wfile.write(content)
+        except:
+            self.send_error(404)
+    
+    def send_json_response(self, data, status=200):
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode())
+
+if __name__ == '__main__':
+    server = http.server.HTTPServer(('0.0.0.0', 8080), SlowDNSAPI)
+    print("SlowDNS API Server running on port 8080")
+    server.serve_forever()
+APIEOF
+
+    chmod +x /usr/local/bin/slowdns-api.py
+    
+    # Create dashboard service
+    cat > /etc/systemd/system/slowdns-dashboard.service << EOF
 [Unit]
-Description=ELITE-X Web Dashboard
-After=network.target
+Description=SlowDNS Dashboard API
+After=network.target server-sldns.service edns-proxy.service
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=$PANEL_DIR
-ExecStart=/usr/bin/python3 $PANEL_DIR/app.py
+ExecStart=/usr/bin/python3 /usr/local/bin/slowdns-api.py
 Restart=always
-RestartSec=5
+User=root
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    
-    systemctl daemon-reload
-    systemctl enable elite-x-web
-    systemctl restart elite-x-web
-    
-    echo -e "${GREEN}✓ Service created and started${NC}"
+
+    print_success "Dashboard with login created successfully"
+    print_step_end
 }
 
 # ============================================================================
-# SHOW COMPLETION
+# MAIN INSTALLATION FUNCTION
 # ============================================================================
-show_completion() {
-    IP=$(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
-    clear
-    echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║${YELLOW}${BOLD}       ELITE-X WEB DASHBOARD INSTALLED!              ${GREEN}║${NC}"
-    echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${GREEN}║${WHITE}  URL:      ${CYAN}http://$IP:$PANEL_PORT/${NC}"
-    echo -e "${GREEN}║${WHITE}  Username: ${CYAN}$PANEL_USER${NC}"
-    echo -e "${GREEN}║${WHITE}  Password: ${CYAN}$PANEL_PASS${NC}"
-    echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${GREEN}║${WHITE}  Commands:${NC}"
-    echo -e "${GREEN}║${WHITE}  • Restart: ${CYAN}systemctl restart elite-x-web${NC}"
-    echo -e "${GREEN}║${WHITE}  • Status:  ${CYAN}systemctl status elite-x-web${NC}"
-    echo -e "${GREEN}║${WHITE}  • Logs:    ${CYAN}journalctl -u elite-x-web -f${NC}"
-    echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-}
-
-# ============================================================================
-# MAIN
-# ============================================================================
-main() {
-    show_banner
-    install_dependencies
-    create_directories
-    create_web_app
-    create_templates
-    create_service
-    show_completion
+main_installation() {
+    print_banner
     
-    echo -e "${GREEN}✅ Installation complete!${NC}"
-    echo -e "${YELLOW}Open your browser and go to: http://$IP:$PANEL_PORT/${NC}"
-    echo -e "${YELLOW}Login with:${NC}"
-    echo -e "  ${WHITE}Username:${NC} ${CYAN}$PANEL_USER${NC}"
-    echo -e "  ${WHITE}Password:${NC} ${CYAN}$PANEL_PASS${NC}"
+    # Get nameserver
+    echo -e "${WHITE}${BOLD}Configure Your Nameserver:${NC}"
+    echo -e "${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}Example:${NC} dns.google.com, dns.cloudflare.com            ${CYAN}│${NC}"
+    echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
+    read -p "$(echo -e "${WHITE}${BOLD}Enter nameserver: ${NC}")" NAMESERVER
+    NAMESERVER=${NAMESERVER:-dns.google.com}
+    
+    # Get server IP
+    SERVER_IP=$(curl -s --connect-timeout 5 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+    
+    check_requirements
+    download_files
+    configure_ssh
+    compile_edns
+    compile_auth_server
+    init_users_db
+    create_dashboard
+    create_services
+    configure_firewall
+    start_services
+    show_summary
 }
 
-# Run
-main
+# ============================================================================
+# SHOW COMPLETION SUMMARY
+# ============================================================================
+show_summary() {
+    print_header "🎉 INSTALLATION COMPLETE"
+    
+    echo -e "${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│${NC} ${WHITE}${BOLD}ELITE-X8 SLOWDNS SERVER INFORMATION${NC}                 ${CYAN}│${NC}"
+    echo -e "${CYAN}├──────────────────────────────────────────────────────────┤${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Server IP:      ${WHITE}$SERVER_IP${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} SSH Port:       ${WHITE}$SSHD_PORT${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} SlowDNS Port:   ${WHITE}$SLOWDNS_PORT${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} EDNS Port:      ${WHITE}53${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Dashboard:      ${WHITE}http://$SERVER_IP:$DASHBOARD_PORT${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Login Page:     ${WHITE}http://$SERVER_IP:$DASHBOARD_PORT/login${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Nameserver:     ${WHITE}$NAMESERVER${NC}"
+    echo -e "${CYAN}├──────────────────────────────────────────────────────────┤${NC}"
+    echo -e "${CYAN}│${NC} ${WHITE}${BOLD}LOGIN CREDENTIALS${NC}                                    ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Username:       ${WHITE}elite-x${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Password:       ${WHITE}elite2026${NC}"
+    echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
+    
+    # Show public key
+    if [ -f /etc/slowdns/server.pub ]; then
+        echo -e "\n${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
+        echo -e "${CYAN}│${NC} ${WHITE}${BOLD}PUBLIC KEY${NC}                                           ${CYAN}│${NC}"
+        echo -e "${CYAN}├──────────────────────────────────────────────────────────┤${NC}"
+        echo -e "${CYAN}│${NC} ${YELLOW}$(cat /etc/slowdns/server.pub)${NC}"
+        echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
+    fi
+    
+    echo -e "\n${PURPLE}╔══════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${PURPLE}║${NC}    ${WHITE}🎯 ELITE-X8 SLOWDNS WITH LOGIN SYSTEM INSTALLED!${NC}       ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC}    ${WHITE}⚡ Dashboard: http://$SERVER_IP:$DASHBOARD_PORT${NC}             ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC}    ${WHITE}🔐 Login: http://$SERVER_IP:$DASHBOARD_PORT/login${NC}          ${PURPLE}║${NC}"
+    echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════════╝${NC}"
+}
+
+# ============================================================================
+# ERROR HANDLING & EXECUTION
+# ============================================================================
+trap 'echo -e "\n${RED}✗ Installation interrupted!${NC}"; log_message "Installation interrupted"; exit 1' INT
+
+# Initialize log
+echo "=== SLOWDNS INSTALLATION STARTED $(date) ===" > "$LOG_FILE"
+
+if main_installation; then
+    echo "=== INSTALLATION COMPLETED SUCCESSFULLY $(date) ===" >> "$LOG_FILE"
+    exit 0
+else
+    echo "=== INSTALLATION FAILED $(date) ===" >> "$LOG_FILE"
+    echo -e "\n${RED}✗ Installation failed${NC}"
+    exit 1
+fi
