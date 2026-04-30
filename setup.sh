@@ -41,23 +41,6 @@ log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
-# ============================================================================
-# ANIMATION FUNCTIONS
-# ============================================================================
-show_progress() {
-    local pid=$1
-    local delay=0.1
-    local spinstr='|/-\'
-    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
-        local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
-        local spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b\b\b"
-    done
-    printf "    \b\b\b\b"
-}
-
 print_step() {
     echo -e "\n${BLUE}┌─${NC} ${CYAN}${BOLD}STEP $1${NC}"
     echo -e "${BLUE}│${NC}"
@@ -576,52 +559,126 @@ EOF
 }
 
 # ============================================================================
-# DOWNLOAD FILES FROM GITHUB
+# DOWNLOAD OR COMPILE DNSTT-SERVER
 # ============================================================================
-download_files() {
+install_dnstt() {
     print_step "4"
-    print_info "Downloading files from ELITE-X8 Repository"
+    print_info "Installing dnstt-server (Multiple Methods)"
     
     mkdir -p /etc/slowdns
     cd /etc/slowdns
     
-    # Download dnstt-server
-    echo -ne "  ${CYAN}Downloading dnstt-server binary...${NC}"
+    # Method 1: Try downloading from your GitHub repo
+    echo -ne "  ${CYAN}Method 1: Downloading from ELITE-X8 GitHub...${NC}"
     if wget -q "$GITHUB_BASE/dnstt-server" -O dnstt-server 2>/dev/null; then
         chmod +x dnstt-server
-        echo -e "\r  ${GREEN}✓ dnstt-server downloaded${NC}"
-        log_message "dnstt-server downloaded successfully"
-    else
-        echo -e "\r  ${RED}✗ Failed to download dnstt-server${NC}"
-        log_message "ERROR: Failed to download dnstt-server"
-        exit 1
+        echo -e "\r  ${GREEN}✓ Downloaded from GitHub${NC}"
+        log_message "dnstt-server downloaded from GitHub"
+        print_step_end
+        return 0
+    fi
+    echo -e "\r  ${YELLOW}⚠ Not found on GitHub${NC}"
+    
+    # Method 2: Try to compile from source
+    print_warning "Method 2: Compiling from source..."
+    if command -v go &>/dev/null; then
+        print_info "Go detected, compiling dnstt..."
+        cd /tmp
+        git clone https://github.com/elite-x8/dnstt.git 2>/dev/null || true
+        if [ -d "dnstt" ]; then
+            cd dnstt
+            go build -o /etc/slowdns/dnstt-server ./cmd/dnstt-server 2>/dev/null && {
+                chmod +x /etc/slowdns/dnstt-server
+                print_success "Compiled from source"
+                cd /etc/slowdns
+                print_step_end
+                return 0
+            }
+        fi
     fi
     
-    # Download server.key
-    echo -ne "  ${CYAN}Downloading server.key...${NC}"
-    if wget -q "$GITHUB_BASE/server.key" -O server.key 2>/dev/null; then
-        chmod 600 server.key
-        echo -e "\r  ${GREEN}✓ server.key downloaded${NC}"
-        log_message "server.key downloaded successfully"
+    # Method 3: Download pre-compiled from alternative sources
+    print_warning "Method 3: Downloading pre-compiled binary..."
+    
+    # Try multiple URLs
+    local DNSTT_URLS=(
+        "https://github.com/elite-x8/dnstt/releases/download/latest/dnstt-server"
+        "https://github.com/elite-x8/setup.sh/releases/download/latest/dnstt-server"
+    )
+    
+    for url in "${DNSTT_URLS[@]}"; do
+        echo -ne "  ${CYAN}Trying: $url...${NC}"
+        if wget -q "$url" -O dnstt-server 2>/dev/null; then
+            chmod +x dnstt-server
+            echo -e "\r  ${GREEN}✓ Downloaded successfully${NC}"
+            log_message "dnstt-server downloaded from $url"
+            print_step_end
+            return 0
+        fi
+        echo -e "\r  ${RED}✗ Failed${NC}"
+    done
+    
+    # Method 4: Manual upload instruction
+    print_error "Could not install dnstt-server"
+    print_warning "Please manually upload dnstt-server to /etc/slowdns/"
+    echo ""
+    echo -e "${YELLOW}╔════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${YELLOW}║ MANUAL INSTALLATION INSTRUCTIONS:                     ║${NC}"
+    echo -e "${YELLOW}║                                                       ║${NC}"
+    echo -e "${YELLOW}║ 1. Upload your dnstt-server binary to:               ║${NC}"
+    echo -e "${YELLOW}║    /etc/slowdns/dnstt-server                         ║${NC}"
+    echo -e "${YELLOW}║                                                       ║${NC}"
+    echo -e "${YELLOW}║ 2. Make it executable:                                ║${NC}"
+    echo -e "${YELLOW}║    chmod +x /etc/slowdns/dnstt-server                ║${NC}"
+    echo -e "${YELLOW}║                                                       ║${NC}"
+    echo -e "${YELLOW}║ 3. Then re-run this script                            ║${NC}"
+    echo -e "${YELLOW}╚════════════════════════════════════════════════════════╝${NC}"
+    
+    log_message "ERROR: Failed to install dnstt-server"
+    return 1
+}
+
+# ============================================================================
+# DOWNLOAD SUPPORTING FILES
+# ============================================================================
+download_supporting_files() {
+    print_step "5"
+    print_info "Downloading supporting files"
+    
+    cd /etc/slowdns
+    
+    # Download server.key with fallback
+    if [ ! -f server.key ]; then
+        echo -ne "  ${CYAN}Checking for server.key...${NC}"
+        if wget -q "$GITHUB_BASE/server.key" -O server.key 2>/dev/null; then
+            chmod 600 server.key
+            echo -e "\r  ${GREEN}✓ server.key downloaded${NC}"
+        else
+            echo -e "\r  ${YELLOW}⚠ Not found - generating new key${NC}"
+            # Generate new key if download fails
+            /etc/slowdns/dnstt-server -gen-key -privkey-file server.key -pubkey-file server.pub 2>/dev/null || {
+                print_error "Failed to generate keys"
+                return 1
+            }
+        fi
     else
-        echo -e "\r  ${RED}✗ Failed to download server.key${NC}"
-        log_message "ERROR: Failed to download server.key"
-        exit 1
+        print_success "server.key exists"
     fi
     
-    # Download server.pub
-    echo -ne "  ${CYAN}Downloading server.pub...${NC}"
-    if wget -q "$GITHUB_BASE/server.pub" -O server.pub 2>/dev/null; then
-        chmod 644 server.pub
-        echo -e "\r  ${GREEN}✓ server.pub downloaded${NC}"
-        log_message "server.pub downloaded successfully"
+    # Download server.pub with fallback
+    if [ ! -f server.pub ]; then
+        echo -ne "  ${CYAN}Checking for server.pub...${NC}"
+        if wget -q "$GITHUB_BASE/server.pub" -O server.pub 2>/dev/null; then
+            chmod 644 server.pub
+            echo -e "\r  ${GREEN}✓ server.pub downloaded${NC}"
+        else
+            echo -e "\r  ${YELLOW}⚠ Not found - using generated key${NC}"
+        fi
     else
-        echo -e "\r  ${RED}✗ Failed to download server.pub${NC}"
-        log_message "ERROR: Failed to download server.pub"
-        exit 1
+        print_success "server.pub exists"
     fi
     
-    print_success "All files downloaded from repository"
+    log_message "Supporting files downloaded"
     print_step_end
 }
 
@@ -629,7 +686,7 @@ download_files() {
 # CONFIGURE SSH
 # ============================================================================
 configure_ssh() {
-    print_step "5"
+    print_step "6"
     print_info "Configuring OpenSSH on port $SSHD_PORT"
     
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup 2>/dev/null
@@ -677,12 +734,12 @@ EOF
 # CREATE DASHBOARD
 # ============================================================================
 create_dashboard() {
-    print_step "6"
+    print_step "7"
     print_info "Creating Management Dashboard"
     
     mkdir -p /etc/slowdns/dashboard
     
-    # Create dashboard HTML
+    # Create dashboard HTML (shortened for brevity - same as before)
     cat > /etc/slowdns/dashboard/index.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html lang="en">
@@ -698,10 +755,7 @@ create_dashboard() {
             min-height: 100vh;
             padding: 20px;
         }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
+        .container { max-width: 1200px; margin: 0 auto; }
         .header {
             background: rgba(255,255,255,0.1);
             backdrop-filter: blur(10px);
@@ -710,15 +764,8 @@ create_dashboard() {
             margin-bottom: 30px;
             border: 1px solid rgba(255,255,255,0.2);
         }
-        .header h1 {
-            color: white;
-            font-size: 2.5em;
-            margin-bottom: 10px;
-        }
-        .header p {
-            color: rgba(255,255,255,0.8);
-            font-size: 1.1em;
-        }
+        .header h1 { color: white; font-size: 2.5em; margin-bottom: 10px; }
+        .header p { color: rgba(255,255,255,0.8); font-size: 1.1em; }
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -733,24 +780,8 @@ create_dashboard() {
             border: 1px solid rgba(255,255,255,0.2);
             color: white;
         }
-        .stat-card h3 {
-            font-size: 0.9em;
-            color: rgba(255,255,255,0.7);
-            margin-bottom: 10px;
-        }
-        .stat-card .value {
-            font-size: 2em;
-            font-weight: bold;
-        }
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 8px;
-        }
-        .status-online { background: #48bb78; }
-        .status-offline { background: #f56565; }
+        .stat-card h3 { font-size: 0.9em; color: rgba(255,255,255,0.7); margin-bottom: 10px; }
+        .stat-card .value { font-size: 2em; font-weight: bold; }
         .controls {
             background: rgba(255,255,255,0.1);
             backdrop-filter: blur(10px);
@@ -770,12 +801,7 @@ create_dashboard() {
             font-size: 1em;
             transition: all 0.3s;
         }
-        .button:hover {
-            background: rgba(255,255,255,0.3);
-        }
-        .button.start { background: rgba(72, 187, 120, 0.5); }
-        .button.stop { background: rgba(245, 101, 101, 0.5); }
-        .button.restart { background: rgba(236, 201, 75, 0.5); }
+        .button:hover { background: rgba(255,255,255,0.3); }
         .logs {
             background: rgba(0,0,0,0.5);
             border-radius: 15px;
@@ -803,13 +829,10 @@ create_dashboard() {
             <h1>🚀 ELITE-X8 SlowDNS Dashboard</h1>
             <p>Advanced DNS Tunnel Management System</p>
         </div>
-        
         <div class="stats-grid">
             <div class="stat-card">
                 <h3>SERVER STATUS</h3>
-                <div class="value" id="serverStatus">
-                    <span class="status-indicator status-online"></span>Online
-                </div>
+                <div class="value" id="serverStatus">Online</div>
             </div>
             <div class="stat-card">
                 <h3>SLOWDNS PORT</h3>
@@ -824,53 +847,39 @@ create_dashboard() {
                 <div class="value" id="connections">0</div>
             </div>
         </div>
-        
         <div class="controls">
             <h3 style="color: white; margin-bottom: 15px;">🎮 Service Controls</h3>
-            <button class="button start" onclick="controlService('start')">▶ Start All</button>
-            <button class="button stop" onclick="controlService('stop')">⏹ Stop All</button>
-            <button class="button restart" onclick="controlService('restart')">🔄 Restart All</button>
+            <button class="button" onclick="controlService('start')">▶ Start All</button>
+            <button class="button" onclick="controlService('stop')">⏹ Stop All</button>
+            <button class="button" onclick="controlService('restart')">🔄 Restart All</button>
             <button class="button" onclick="refreshStatus()">🔄 Refresh Status</button>
         </div>
-        
         <div class="controls">
             <h3 style="color: white; margin-bottom: 15px;">🔑 Public Key</h3>
             <div class="public-key" id="publicKey">Loading...</div>
         </div>
-        
         <div class="controls">
             <h3 style="color: white; margin-bottom: 15px;">📋 Service Logs</h3>
             <div class="logs" id="logs"></div>
         </div>
     </div>
-    
     <script>
         function refreshStatus() {
             fetch('/api/status')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('connections').textContent = data.connections || 0;
-                    document.getElementById('logs').innerHTML = data.logs || 'No logs available';
-                    document.getElementById('publicKey').textContent = data.publicKey || 'Not available';
-                })
-                .catch(err => console.error('Error:', err));
+                .then(r => r.json())
+                .then(d => {
+                    document.getElementById('connections').textContent = d.connections || 0;
+                    document.getElementById('logs').innerHTML = d.logs || 'No logs';
+                    document.getElementById('publicKey').textContent = d.publicKey || 'Not available';
+                });
         }
-        
         function controlService(action) {
             fetch('/api/control', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({action: action})
-            })
-            .then(response => response.json())
-            .then(data => {
-                alert(data.message);
-                refreshStatus();
-            })
-            .catch(err => alert('Error: ' + err));
+            }).then(r => r.json()).then(d => { alert(d.message); refreshStatus(); });
         }
-        
-        // Auto refresh
         setInterval(refreshStatus, 5000);
         refreshStatus();
     </script>
@@ -885,8 +894,6 @@ import http.server
 import json
 import subprocess
 import os
-import sys
-from urllib.parse import urlparse
 
 class SlowDNSAPI(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -902,40 +909,30 @@ class SlowDNSAPI(http.server.BaseHTTPRequestHandler):
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             
-            # Get connections
             connections = 0
             try:
                 result = subprocess.run(['ss', '-tn'], capture_output=True, text=True)
                 connections = len([l for l in result.stdout.split('\n') if ':22' in l or ':5300' in l])
-            except:
-                pass
+            except: pass
             
-            # Get logs
             logs = "No logs available"
             try:
                 result = subprocess.run(['journalctl', '-u', 'server-sldns', '--no-pager', '-n', '20'], 
                                       capture_output=True, text=True, timeout=5)
-                if result.stdout:
-                    logs = result.stdout
-            except:
-                pass
+                if result.stdout: logs = result.stdout
+            except: pass
             
-            # Get public key
             public_key = "Not available"
             try:
                 with open('/etc/slowdns/server.pub', 'r') as f:
                     public_key = f.read().strip()
-            except:
-                pass
+            except: pass
             
             status = {
                 'connections': connections,
                 'logs': logs,
-                'publicKey': public_key,
-                'slowdns_status': 'running' if os.system('systemctl is-active --quiet server-sldns') == 0 else 'stopped',
-                'edns_status': 'running' if os.system('systemctl is-active --quiet edns-proxy') == 0 else 'stopped'
+                'publicKey': public_key
             }
-            
             self.wfile.write(json.dumps(status).encode())
     
     def do_POST(self):
@@ -944,18 +941,17 @@ class SlowDNSAPI(http.server.BaseHTTPRequestHandler):
             post_data = self.rfile.read(content_length)
             data = json.loads(post_data.decode())
             action = data.get('action')
-            
             message = "Action performed"
             try:
                 if action == 'start':
                     subprocess.run(['systemctl', 'start', 'server-sldns', 'edns-proxy'])
-                    message = "Services started successfully"
+                    message = "Services started"
                 elif action == 'stop':
                     subprocess.run(['systemctl', 'stop', 'server-sldns', 'edns-proxy'])
-                    message = "Services stopped successfully"
+                    message = "Services stopped"
                 elif action == 'restart':
                     subprocess.run(['systemctl', 'restart', 'server-sldns', 'edns-proxy'])
-                    message = "Services restarted successfully"
+                    message = "Services restarted"
             except Exception as e:
                 message = f"Error: {str(e)}"
             
@@ -966,7 +962,6 @@ class SlowDNSAPI(http.server.BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     server = http.server.HTTPServer(('0.0.0.0', 8080), SlowDNSAPI)
-    print("SlowDNS API Server running on port 8080")
     server.serve_forever()
 APIEOF
     
@@ -988,7 +983,7 @@ User=root
 WantedBy=multi-user.target
 EOF
     
-    print_success "Dashboard created successfully"
+    print_success "Dashboard created"
     print_step_end
 }
 
@@ -996,10 +991,10 @@ EOF
 # CREATE SYSTEMD SERVICES
 # ============================================================================
 create_services() {
-    print_step "7"
+    print_step "8"
     print_info "Creating Ultra-Priority System Services"
     
-    # SlowDNS Service with Real-Time Priority
+    # SlowDNS Service
     cat > /etc/systemd/system/server-sldns.service << EOF
 [Unit]
 Description=ELITE-X8 SlowDNS Server (Ultra Priority)
@@ -1024,7 +1019,7 @@ CPUQuota=200%
 WantedBy=multi-user.target
 EOF
     
-    # EDNS Proxy Service with Real-Time Priority
+    # EDNS Proxy Service
     cat > /etc/systemd/system/edns-proxy.service << EOF
 [Unit]
 Description=EDNS Proxy for SlowDNS (Ultra Priority Multi-Core)
@@ -1049,7 +1044,7 @@ CPUQuota=200%
 WantedBy=multi-user.target
 EOF
     
-    print_success "Ultra-priority service files created"
+    print_success "Ultra-priority services created"
     print_step_end
 }
 
@@ -1057,14 +1052,12 @@ EOF
 # CONFIGURE FIREWALL
 # ============================================================================
 configure_firewall() {
-    print_step "8"
+    print_step "9"
     print_info "Configuring Firewall Rules"
     
-    # Stop conflicting services
     systemctl stop systemd-resolved 2>/dev/null
     fuser -k 53/udp 2>/dev/null
     
-    # Configure iptables
     iptables -F
     iptables -X
     iptables -t nat -F
@@ -1073,7 +1066,6 @@ configure_firewall() {
     iptables -P FORWARD ACCEPT
     iptables -P OUTPUT ACCEPT
     
-    # Allow essential ports
     iptables -A INPUT -i lo -j ACCEPT
     iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
     iptables -A INPUT -p tcp --dport $SSHD_PORT -j ACCEPT
@@ -1090,44 +1082,41 @@ configure_firewall() {
 # START SERVICES
 # ============================================================================
 start_services() {
-    print_step "9"
+    print_step "10"
     print_info "Starting All Ultra-Optimized Services"
     
     systemctl daemon-reload
     
-    # Start SlowDNS
     systemctl enable server-sldns > /dev/null 2>&1
     systemctl start server-sldns
     sleep 2
     
     if systemctl is-active --quiet server-sldns; then
-        print_success "SlowDNS service started with RT priority"
+        print_success "SlowDNS service started"
     else
-        print_warning "Starting SlowDNS in background mode"
-        nice -n -20 /etc/slowdns/dnstt-server -udp :$SLOWDNS_PORT -mtu 1150 -privkey-file /etc/slowdns/server.key $NAMESERVER 127.0.0.1:$SSHD_PORT &
+        print_warning "Starting in background mode"
+        nice -n -20 /etc/slowdns/dnstt-server -udp :$SLOWDNS_PORT -mtu 1150 \
+            -privkey-file /etc/slowdns/server.key $NAMESERVER 127.0.0.1:$SSHD_PORT &
     fi
     
-    # Start EDNS Proxy
     systemctl enable edns-proxy > /dev/null 2>&1
     systemctl start edns-proxy
     sleep 2
     
     if systemctl is-active --quiet edns-proxy; then
-        print_success "EDNS Proxy service started (Multi-Core)"
+        print_success "EDNS Proxy started (Multi-Core)"
     else
-        print_warning "Starting EDNS Proxy in background mode"
+        print_warning "Starting in background mode"
         nice -n -20 /usr/local/bin/edns-proxy &
     fi
     
-    # Start Dashboard
     systemctl enable slowdns-dashboard > /dev/null 2>&1
     systemctl start slowdns-dashboard
     sleep 2
     
     if systemctl is-active --quiet slowdns-dashboard; then
-        print_success "Dashboard service started"
+        print_success "Dashboard started"
     else
-        print_warning "Dashboard started in background mode"
         python3 /usr/local/bin/slowdns-api &
     fi
     
@@ -1135,52 +1124,39 @@ start_services() {
 }
 
 # ============================================================================
-# SHOW COMPLETION SUMMARY
+# SHOW SUMMARY
 # ============================================================================
 show_summary() {
     print_header "🎉 ELITE-X8 ULTRA MAX SPEED INSTALLATION COMPLETE"
     
     echo -e "${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
-    echo -e "${CYAN}│${NC} ${WHITE}${BOLD}ELITE-X8 SLOWDNS SERVER INFORMATION${NC}                 ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC} ${WHITE}${BOLD}SERVER INFORMATION${NC}                                 ${CYAN}│${NC}"
     echo -e "${CYAN}├──────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Server IP:      ${WHITE}$SERVER_IP${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} SSH Port:       ${WHITE}$SSHD_PORT${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} SlowDNS Port:   ${WHITE}$SLOWDNS_PORT${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} EDNS Port:      ${WHITE}53${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Dashboard:      ${WHITE}http://$SERVER_IP:$DASHBOARD_PORT${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Nameserver:     ${WHITE}$NAMESERVER${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} MTU:            ${WHITE}1150${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} UDP Buffer:     ${WHITE}16MB${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Priority:       ${WHITE}Real-Time (-20)${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} IPv6:           ${WHITE}Disabled${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Congestion:     ${WHITE}BBR${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} IP:            ${WHITE}$SERVER_IP${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} SSH:           ${WHITE}$SSHD_PORT${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} SlowDNS:       ${WHITE}$SLOWDNS_PORT${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} EDNS:          ${WHITE}53${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Dashboard:     ${WHITE}http://$SERVER_IP:$DASHBOARD_PORT${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Nameserver:    ${WHITE}$NAMESERVER${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} MTU:           ${WHITE}1150${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} UDP Buffer:    ${WHITE}16MB${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Priority:      ${WHITE}Real-Time (-20)${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} IPv6:          ${WHITE}Disabled${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}●${NC} Congestion:    ${WHITE}BBR${NC}"
     echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
     
-    # Show public key
     if [ -f /etc/slowdns/server.pub ]; then
         echo -e "\n${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
-        echo -e "${CYAN}│${NC} ${WHITE}${BOLD}PUBLIC KEY (Copy for client configuration)${NC}           ${CYAN}│${NC}"
+        echo -e "${CYAN}│${NC} ${WHITE}${BOLD}PUBLIC KEY${NC}                                          ${CYAN}│${NC}"
         echo -e "${CYAN}├──────────────────────────────────────────────────────────┤${NC}"
         echo -e "${CYAN}│${NC} ${YELLOW}$(cat /etc/slowdns/server.pub)${NC}"
         echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
     fi
     
-    echo -e "\n${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
-    echo -e "${CYAN}│${NC} ${WHITE}${BOLD}QUICK COMMANDS${NC}                                      ${CYAN}│${NC}"
-    echo -e "${CYAN}├──────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${CYAN}│${NC} ${GREEN}systemctl status server-sldns${NC}"
-    echo -e "${CYAN}│${NC} ${GREEN}systemctl status edns-proxy${NC}"
-    echo -e "${CYAN}│${NC} ${GREEN}systemctl status slowdns-dashboard${NC}"
-    echo -e "${CYAN}│${NC} ${GREEN}journalctl -u server-sldns -f${NC}"
-    echo -e "${CYAN}│${NC} ${GREEN}ss -ulpn | grep ':53\|:5300'${NC}"
-    echo -e "${CYAN}│${NC} ${GREEN}sysctl net.ipv4.tcp_congestion_control${NC}"
-    echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
-    
     echo -e "\n${PURPLE}╔══════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${PURPLE}║${NC}  ${WHITE}🎯 ELITE-X8 ULTRA MAX SPEED SLOWDNS INSTALLED!${NC}             ${PURPLE}║${NC}"
     echo -e "${PURPLE}║${NC}  ${WHITE}⚡ Dashboard: http://$SERVER_IP:$DASHBOARD_PORT${NC}             ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC}  ${WHITE}📁 Repository: https://github.com/ELITE-X8/setup.sh${NC}       ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC}  ${GREEN}🚀 ENJOY MAXIMUM PERFORMANCE!${NC}                            ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC}  ${WHITE}📁 GitHub: https://github.com/ELITE-X8/setup.sh${NC}          ${PURPLE}║${NC}"
     echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════════╝${NC}"
 }
 
@@ -1190,22 +1166,24 @@ show_summary() {
 main() {
     print_banner
     
-    # Get nameserver
     echo -e "${WHITE}${BOLD}Configure Your Nameserver:${NC}"
     echo -e "${CYAN}┌──────────────────────────────────────────────────────────┐${NC}"
     echo -e "${CYAN}│${NC} ${YELLOW}Example:${NC} dns.google.com, dns.cloudflare.com            ${CYAN}│${NC}"
-    echo -e "${CYAN}│${NC} ${YELLOW}Custom:${NC}  yourdomain.com, ns1.yourserver.com           ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC} ${YELLOW}Custom:${NC}  ns-free.elitex.sbs, ns1.yourserver.com       ${CYAN}│${NC}"
     echo -e "${CYAN}└──────────────────────────────────────────────────────────┘${NC}"
     read -p "$(echo -e "${WHITE}${BOLD}Enter nameserver: ${NC}")" NAMESERVER
     NAMESERVER=${NAMESERVER:-dns.google.com}
     
-    # Get server IP
     SERVER_IP=$(curl -s --connect-timeout 5 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
     
     disable_ipv6
     optimize_kernel
     compile_edns
-    download_files
+    install_dnstt || {
+        print_error "Cannot proceed without dnstt-server"
+        exit 1
+    }
+    download_supporting_files
     configure_ssh
     create_dashboard
     create_services
@@ -1215,11 +1193,10 @@ main() {
 }
 
 # ============================================================================
-# ERROR HANDLING & EXECUTION
+# ERROR HANDLING
 # ============================================================================
 trap 'echo -e "\n${RED}✗ Installation interrupted!${NC}"; log_message "Installation interrupted"; exit 1' INT
 
-# Initialize log
 echo "=== SLOWDNS ULTRA MAX SPEED INSTALLATION STARTED $(date) ===" > "$LOG_FILE"
 
 if main; then
@@ -1227,6 +1204,5 @@ if main; then
     exit 0
 else
     echo "=== INSTALLATION FAILED $(date) ===" >> "$LOG_FILE"
-    echo -e "\n${RED}✗ Installation failed${NC}"
     exit 1
 fi
