@@ -1,7 +1,7 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════════╗
 #  ELITE-X DNSTT SCRIPT v3.3.2 - FALCON ULTRA C EDITION
-#  + GB Limits + C Boosters + Auto-Delete
+#  + GB Limits + C Boosters + Auto-Delete + VPN FIX
 # ╚══════════════════════════════════════════════════════════════╝
 set -euo pipefail
 
@@ -47,6 +47,117 @@ print_color() { echo -e "${2}${1}${NC}"; }
 set_timezone() { timedatectl set-timezone $TIMEZONE 2>/dev/null || ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime 2>/dev/null || true; }
 
 # ═══════════════════════════════════════════════════════════
+# SYSTEM OPTIMIZATION FOR VPN
+# ═══════════════════════════════════════════════════════════
+optimize_system_for_vpn() {
+    echo -e "${YELLOW}🔧 Optimizing system for VPN connections...${NC}"
+    
+    # Enable IP forwarding
+    sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
+    sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
+    
+    # Optimize network for tunneling
+    sysctl -w net.ipv4.tcp_mtu_probing=1 >/dev/null 2>&1
+    sysctl -w net.ipv4.ip_no_pmtu_disc=0 >/dev/null 2>&1
+    sysctl -w net.ipv4.route.flush=1 >/dev/null 2>&1
+    
+    # Increase UDP buffers for DNS tunneling
+    sysctl -w net.core.rmem_max=134217728 >/dev/null 2>&1
+    sysctl -w net.core.wmem_max=134217728 >/dev/null 2>&1
+    sysctl -w net.core.rmem_default=262144 >/dev/null 2>&1
+    sysctl -w net.core.wmem_default=262144 >/dev/null 2>&1
+    sysctl -w net.ipv4.udp_mem='65536 131072 262144' >/dev/null 2>&1
+    sysctl -w net.ipv4.udp_rmem_min=16384 >/dev/null 2>&1
+    sysctl -w net.ipv4.udp_wmem_min=16384 >/dev/null 2>&1
+    
+    # Make permanent
+    cat > /etc/sysctl.d/99-elite-x-vpn.conf <<SYSCTL
+net.ipv4.ip_forward=1
+net.ipv6.conf.all.forwarding=1
+net.ipv4.tcp_mtu_probing=1
+net.ipv4.ip_no_pmtu_disc=0
+net.core.rmem_max=134217728
+net.core.wmem_max=134217728
+net.core.rmem_default=262144
+net.core.wmem_default=262144
+net.ipv4.udp_mem=65536 131072 262144
+net.ipv4.udp_rmem_min=16384
+net.ipv4.udp_wmem_min=16384
+SYSCTL
+    sysctl -p /etc/sysctl.d/99-elite-x-vpn.conf >/dev/null 2>&1
+    
+    # Configure iptables for proper forwarding
+    iptables -t nat -A POSTROUTING -j MASQUERADE 2>/dev/null || true
+    iptables -A FORWARD -i lo -j ACCEPT 2>/dev/null || true
+    iptables -A FORWARD -o lo -j ACCEPT 2>/dev/null || true
+    
+    # Disable RP filter for VPN
+    sysctl -w net.ipv4.conf.all.rp_filter=0 >/dev/null 2>&1
+    sysctl -w net.ipv4.conf.default.rp_filter=0 >/dev/null 2>&1
+    
+    echo -e "${GREEN}✅ System optimized for VPN${NC}"
+}
+
+# ═══════════════════════════════════════════════════════════
+# SSH CONFIGURATION FIX
+# ═══════════════════════════════════════════════════════════
+configure_ssh_for_vpn() {
+    echo -e "${YELLOW}🔧 Configuring SSH for VPN connections...${NC}"
+    
+    # Backup original config
+    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak 2>/dev/null || true
+    
+    # Configure SSH for tunneling
+    cat > /etc/ssh/sshd_config.d/elite-x-vpn.conf <<'SSHCONF'
+# ELITE-X VPN Configuration
+Port 22
+AddressFamily any
+ListenAddress 0.0.0.0
+ListenAddress ::
+
+# Authentication
+PermitRootLogin yes
+PasswordAuthentication yes
+PubkeyAuthentication yes
+ChallengeResponseAuthentication no
+UsePAM yes
+
+# VPN/Tunneling support
+AllowTcpForwarding yes
+AllowAgentForwarding yes
+GatewayPorts yes
+PermitTunnel yes
+PermitOpen any
+
+# Performance
+TCPKeepAlive yes
+ClientAliveInterval 60
+ClientAliveCountMax 3
+MaxStartups 100:30:200
+MaxSessions 100
+
+# DNS
+UseDNS no
+
+# Logging
+LogLevel VERBOSE
+
+# Include banner
+Banner /etc/elite-x/banner/ssh-banner
+SSHCONF
+
+    # Ensure main config includes our config
+    if ! grep -q "Include /etc/ssh/sshd_config.d/\*.conf" /etc/ssh/sshd_config; then
+        echo "Include /etc/ssh/sshd_config.d/*.conf" >> /etc/ssh/sshd_config
+    fi
+    
+    # Restart SSH
+    systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
+    
+    echo -e "${GREEN}✅ SSH configured for VPN${NC}"
+}
+
+# ═══════════════════════════════════════════════════════════
 # C COMPILER CHECK & SETUP
 # ═══════════════════════════════════════════════════════════
 setup_c_compiler() {
@@ -56,10 +167,10 @@ setup_c_compiler() {
 }
 
 # ═══════════════════════════════════════════════════════════
-# C-BASED EDNS PROXY (REPLACES PYTHON)
+# C-BASED EDNS PROXY (REPLACES PYTHON) - FIXED
 # ═══════════════════════════════════════════════════════════
 create_c_edns_proxy() {
-    echo -e "${YELLOW}📝 Compiling C-based EDNS Proxy...${NC}"
+    echo -e "${YELLOW}📝 Compiling C-based EDNS Proxy (Fixed)...${NC}"
     
     cat > /tmp/edns_proxy.c <<'CEOF'
 #include <stdio.h>
@@ -72,12 +183,14 @@ create_c_edns_proxy() {
 #include <signal.h>
 #include <time.h>
 #include <errno.h>
+#include <pthread.h>
 
 #define BUFFER_SIZE 4096
 #define DNS_PORT 53
 #define BACKEND_PORT 5300
 #define MAX_EDNS_SIZE 1800
 #define MIN_EDNS_SIZE 512
+#define MAX_THREADS 200
 
 static volatile int running = 1;
 
@@ -111,8 +224,8 @@ void modify_edns(unsigned char *data, int *len, unsigned short max_size) {
     
     for (int i = 0; i < qdcount; i++) {
         offset = skip_name(data, offset, *len);
+        if (offset + 4 > *len) return;
         offset += 4;
-        if (offset >= *len) return;
     }
     
     for (int i = 0; i < ancount + nscount; i++) {
@@ -122,7 +235,6 @@ void modify_edns(unsigned char *data, int *len, unsigned short max_size) {
         memcpy(&rdlength, data + offset + 8, 2);
         rdlength = ntohs(rdlength);
         offset += 10 + rdlength;
-        if (offset >= *len) return;
     }
     
     for (int i = 0; i < arcount; i++) {
@@ -143,6 +255,59 @@ void modify_edns(unsigned char *data, int *len, unsigned short max_size) {
     }
 }
 
+typedef struct {
+    int sock;
+    struct sockaddr_in client_addr;
+    socklen_t client_len;
+    unsigned char *data;
+    int data_len;
+} proxy_thread_args_t;
+
+void *handle_proxy(void *arg) {
+    proxy_thread_args_t *args = (proxy_thread_args_t *)arg;
+    
+    int backend_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (backend_sock < 0) {
+        free(args->data);
+        free(args);
+        return NULL;
+    }
+    
+    struct timeval btv;
+    btv.tv_sec = 5;
+    btv.tv_usec = 0;
+    setsockopt(backend_sock, SOL_SOCKET, SO_RCVTIMEO, &btv, sizeof(btv));
+    
+    struct sockaddr_in backend_addr;
+    memset(&backend_addr, 0, sizeof(backend_addr));
+    backend_addr.sin_family = AF_INET;
+    backend_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    backend_addr.sin_port = htons(BACKEND_PORT);
+    
+    unsigned char response[BUFFER_SIZE];
+    int len = args->data_len;
+    modify_edns(args->data, &len, MAX_EDNS_SIZE);
+    
+    sendto(backend_sock, args->data, len, 0, 
+           (struct sockaddr*)&backend_addr, sizeof(backend_addr));
+    
+    socklen_t back_len = sizeof(backend_addr);
+    int rn = recvfrom(backend_sock, response, BUFFER_SIZE, 0,
+                     (struct sockaddr*)&backend_addr, &back_len);
+    
+    if (rn > 0) {
+        len = rn;
+        modify_edns(response, &len, MIN_EDNS_SIZE);
+        sendto(args->sock, response, len, 0,
+              (struct sockaddr*)&args->client_addr, args->client_len);
+    }
+    
+    close(backend_sock);
+    free(args->data);
+    free(args);
+    return NULL;
+}
+
 int main() {
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
@@ -155,6 +320,12 @@ int main() {
     
     int reuse = 1;
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    
+    // Set buffer sizes
+    int rcvbuf = 262144;
+    int sndbuf = 262144;
+    setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+    setsockopt(sock, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
     
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
@@ -177,59 +348,50 @@ int main() {
     }
     
     struct timeval tv;
-    tv.tv_sec = 5;
+    tv.tv_sec = 1;
     tv.tv_usec = 0;
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     
-    fprintf(stderr, "C-EDNS Proxy running on port 53\n");
-    
-    struct sockaddr_in backend_addr;
-    memset(&backend_addr, 0, sizeof(backend_addr));
-    backend_addr.sin_family = AF_INET;
-    backend_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    backend_addr.sin_port = htons(BACKEND_PORT);
-    
-    unsigned char buffer[BUFFER_SIZE];
-    unsigned char response[BUFFER_SIZE];
+    fprintf(stderr, "C-EDNS Proxy running on port 53 (fixed version)\n");
     
     while (running) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
         
-        int n = recvfrom(sock, buffer, BUFFER_SIZE, 0, 
-                        (struct sockaddr*)&client_addr, &client_len);
-        if (n < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
-            if (!running) break;
+        unsigned char *buffer = malloc(BUFFER_SIZE);
+        if (!buffer) {
+            usleep(10000);
             continue;
         }
         
-        int len = n;
-        modify_edns(buffer, &len, MAX_EDNS_SIZE);
-        
-        int backend_sock = socket(AF_INET, SOCK_DGRAM, 0);
-        if (backend_sock < 0) continue;
-        
-        struct timeval btv;
-        btv.tv_sec = 5;
-        btv.tv_usec = 0;
-        setsockopt(backend_sock, SOL_SOCKET, SO_RCVTIMEO, &btv, sizeof(btv));
-        
-        sendto(backend_sock, buffer, len, 0, 
-               (struct sockaddr*)&backend_addr, sizeof(backend_addr));
-        
-        socklen_t back_len = sizeof(backend_addr);
-        int rn = recvfrom(backend_sock, response, BUFFER_SIZE, 0,
-                         (struct sockaddr*)&backend_addr, &back_len);
-        
-        if (rn > 0) {
-            len = rn;
-            modify_edns(response, &len, MIN_EDNS_SIZE);
-            sendto(sock, response, len, 0,
-                  (struct sockaddr*)&client_addr, client_len);
+        int n = recvfrom(sock, buffer, BUFFER_SIZE, 0, 
+                        (struct sockaddr*)&client_addr, &client_len);
+        if (n < 0) {
+            free(buffer);
+            if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
+            if (!running) break;
+            usleep(10000);
+            continue;
         }
         
-        close(backend_sock);
+        proxy_thread_args_t *args = malloc(sizeof(proxy_thread_args_t));
+        if (!args) {
+            free(buffer);
+            continue;
+        }
+        
+        args->sock = sock;
+        args->client_addr = client_addr;
+        args->client_len = client_len;
+        args->data = buffer;
+        args->data_len = n;
+        
+        pthread_t thread;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        pthread_create(&thread, &attr, handle_proxy, args);
+        pthread_attr_destroy(&attr);
     }
     
     close(sock);
@@ -237,7 +399,7 @@ int main() {
 }
 CEOF
 
-    gcc -O3 -march=native -mtune=native -flto -o /usr/local/bin/elite-x-edns-proxy /tmp/edns_proxy.c 2>/dev/null
+    gcc -O3 -march=native -mtune=native -pthread -o /usr/local/bin/elite-x-edns-proxy /tmp/edns_proxy.c 2>/dev/null
     rm -f /tmp/edns_proxy.c
     
     if [ -f /usr/local/bin/elite-x-edns-proxy ]; then
@@ -775,7 +937,7 @@ EOF
 }
 
 # ═══════════════════════════════════════════════════════════
-# C-BASED NETWORK BOOSTER (TCP OPTIMIZER)
+# C-BASED NETWORK BOOSTER (TCP OPTIMIZER) - ENHANCED FOR VPN
 # ═══════════════════════════════════════════════════════════
 create_c_network_booster() {
     echo -e "${YELLOW}📝 Compiling C Network Booster...${NC}"
@@ -795,12 +957,19 @@ void signal_handler(int sig) {
 }
 
 void apply_tcp_optimizations() {
+    // BBR & Queue
     system("sysctl -w net.core.default_qdisc=fq >/dev/null 2>&1");
     system("sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1");
+    
+    // Buffer sizes
     system("sysctl -w net.core.rmem_max=134217728 >/dev/null 2>&1");
     system("sysctl -w net.core.wmem_max=134217728 >/dev/null 2>&1");
+    system("sysctl -w net.core.rmem_default=262144 >/dev/null 2>&1");
+    system("sysctl -w net.core.wmem_default=262144 >/dev/null 2>&1");
     system("sysctl -w net.ipv4.tcp_rmem='4096 87380 134217728' >/dev/null 2>&1");
     system("sysctl -w net.ipv4.tcp_wmem='4096 65536 134217728' >/dev/null 2>&1");
+    
+    // TCP optimizations for VPN tunneling
     system("sysctl -w net.ipv4.tcp_mtu_probing=1 >/dev/null 2>&1");
     system("sysctl -w net.ipv4.tcp_sack=1 >/dev/null 2>&1");
     system("sysctl -w net.ipv4.tcp_window_scaling=1 >/dev/null 2>&1");
@@ -816,10 +985,19 @@ void apply_tcp_optimizations() {
     system("sysctl -w net.ipv4.tcp_keepalive_time=60 >/dev/null 2>&1");
     system("sysctl -w net.ipv4.tcp_keepalive_intvl=10 >/dev/null 2>&1");
     system("sysctl -w net.ipv4.tcp_keepalive_probes=6 >/dev/null 2>&1");
+    
+    // UDP optimization for DNS tunneling
     system("sysctl -w net.ipv4.udp_mem='65536 131072 262144' >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.udp_rmem_min=16384 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.udp_wmem_min=16384 >/dev/null 2>&1");
     system("sysctl -w net.core.optmem_max=65536 >/dev/null 2>&1");
     
-    fprintf(stderr, "C Network Booster: TCP optimizations applied\n");
+    // IP forwarding for VPN
+    system("sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.conf.all.rp_filter=0 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.conf.default.rp_filter=0 >/dev/null 2>&1");
+    
+    fprintf(stderr, "C Network Booster: TCP/UDP/VPN optimizations applied\n");
 }
 
 int main() {
@@ -854,7 +1032,9 @@ After=network.target
 Type=simple
 ExecStart=/usr/local/bin/elite-x-netbooster
 Restart=always
-RestartSec=30[Install]
+RestartSec=30
+
+[Install]
 WantedBy=multi-user.target
 EOF
         echo -e "${GREEN}✅ C Network Booster compiled${NC}"
@@ -1357,6 +1537,8 @@ INFO
     
     local bw_disp="Unlimited"; [ "$bandwidth_gb" != "0" ] && bw_disp="${bandwidth_gb} GB"
     SERVER=$(cat /etc/elite-x/subdomain 2>/dev/null || echo "?")
+    IP=$(cat /etc/elite-x/cached_ip 2>/dev/null || echo "?")
+    PUBKEY=$(cat /etc/elite-x/public_key 2>/dev/null || echo "?")
     
     clear
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
@@ -1365,9 +1547,15 @@ INFO
     echo -e "${GREEN}║${WHITE}  Username   :${CYAN} $username${NC}"
     echo -e "${GREEN}║${WHITE}  Password   :${CYAN} $password${NC}"
     echo -e "${GREEN}║${WHITE}  Server     :${CYAN} $SERVER${NC}"
+    echo -e "${GREEN}║${WHITE}  IP         :${CYAN} $IP${NC}"
+    echo -e "${GREEN}║${WHITE}  Public Key :${CYAN} $PUBKEY${NC}"
     echo -e "${GREEN}║${WHITE}  Expire     :${CYAN} $expire_date${NC}"
     echo -e "${GREEN}║${WHITE}  Max Login  :${CYAN} $conn_limit${NC}"
     echo -e "${GREEN}║${WHITE}  Bandwidth  :${CYAN} $bw_disp${NC}"
+    echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${GREEN}║${YELLOW}  SLOWDNS CONFIG:${NC}"
+    echo -e "${GREEN}║${WHITE}  NS: ${CYAN}$SERVER${NC}"
+    echo -e "${GREEN}║${WHITE}  PUBKEY: ${CYAN}$PUBKEY${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
 }
 
@@ -1617,7 +1805,7 @@ settings_menu() {
         echo -e "${PURPLE}║${WHITE}  [4] Edit Banner [5] Reset Banner     [6] Traffic Stats${NC}"
         echo -e "${PURPLE}║${WHITE}  [7] Reset All BW [8] Toggle Auto-Ban ($ABSTATUS)${WHITE}${NC}"
         echo -e "${PURPLE}║${WHITE}  [9] Restart All  [10] Reboot VPS      [11] Uninstall${NC}"
-        echo -e "${PURPLE}║${WHITE}  [12] Recompile All C Boosters${NC}"
+        echo -e "${PURPLE}║${WHITE}  [12] Recompile All C Boosters  [13] Fix VPN/SSH${NC}"
         echo -e "${PURPLE}║${WHITE}  [0] Back${NC}"
         echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════╝${NC}"
         read -p "$(echo -e $GREEN"Option: "$NC)" ch
@@ -1640,6 +1828,7 @@ settings_menu() {
                 sysctl -w net.core.rmem_max=134217728 >/dev/null 2>&1
                 sysctl -w net.core.wmem_max=134217728 >/dev/null 2>&1
                 sysctl -w net.ipv4.tcp_fastopen=3 >/dev/null 2>&1
+                sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
                 systemctl restart elite-x-netbooster 2>/dev/null
                 echo -e "${GREEN}✅ Speed optimized${NC}"
                 read -p "Press Enter..."
@@ -1690,12 +1879,14 @@ settings_menu() {
                         systemctl stop "$s" 2>/dev/null; systemctl disable "$s" 2>/dev/null
                     done
                     rm -rf /etc/systemd/system/{dnstt-elite-x*,elite-x*}
-                    rm -rf /etc/dnstt /etc/elite-x /var/run/elite-x /tmp/3proxy*
+                    rm -rf /etc/dnstt /etc/elite-x /var/run/elite-x
                     rm -f /usr/local/bin/{dnstt-*,elite-x*}
                     sed -i '/^Banner/d' /etc/ssh/sshd_config
+                    rm -f /etc/ssh/sshd_config.d/elite-x-vpn.conf
                     systemctl restart sshd 2>/dev/null
                     rm -f /etc/profile.d/elite-x-dashboard.sh
                     sed -i '/elite-x/d' ~/.bashrc 2>/dev/null
+                    rm -f /etc/sysctl.d/99-elite-x-vpn.conf
                     systemctl daemon-reload
                     echo -e "${GREEN}✅ Uninstalled!${NC}"
                     exit 0
@@ -1718,6 +1909,14 @@ settings_menu() {
                     systemctl restart "$s" 2>/dev/null || true
                 done
                 echo -e "${GREEN}✅ All C boosters recompiled${NC}"
+                read -p "Press Enter..."
+                ;;
+            13)
+                echo -e "${YELLOW}Fixing VPN/SSH configuration...${NC}"
+                optimize_system_for_vpn
+                configure_ssh_for_vpn
+                systemctl restart dnstt-elite-x dnstt-elite-x-proxy sshd 2>/dev/null
+                echo -e "${GREEN}✅ VPN/SSH fixed${NC}"
                 read -p "Press Enter..."
                 ;;
             0) return ;;
@@ -1813,12 +2012,16 @@ pkill -f elite-x-edns-proxy 2>/dev/null || true
 rm -rf /etc/systemd/system/{dnstt-elite-x*,elite-x*,3proxy-elite*} 2>/dev/null
 rm -rf /etc/dnstt /etc/elite-x /var/run/elite-x 2>/dev/null
 rm -f /usr/local/bin/{dnstt-*,elite-x*,3proxy} 2>/dev/null
+rm -f /etc/ssh/sshd_config.d/elite-x-vpn.conf 2>/dev/null
+rm -f /etc/sysctl.d/99-elite-x-vpn.conf 2>/dev/null
 sed -i '/^Banner/d' /etc/ssh/sshd_config 2>/dev/null
+sed -i '/Include \/etc\/ssh\/sshd_config.d\/\*\.conf/d' /etc/ssh/sshd_config 2>/dev/null
 systemctl restart sshd 2>/dev/null || true
 sleep 2
 
 # Create directories
 mkdir -p /etc/elite-x/{banner,users,traffic,deleted,data_usage,connections,banned,traffic_stats,bandwidth/pidtrack}
+mkdir -p /etc/ssh/sshd_config.d
 mkdir -p /var/run/elite-x/bandwidth
 echo "$TDOMAIN" > /etc/elite-x/subdomain
 echo "$SEL_LOC" > /etc/elite-x/location
@@ -1835,8 +2038,6 @@ cat > /etc/elite-x/banner/default <<'EOF'
 ╚═══════════════════════════════════════════════════════════════╝
 EOF
 cp /etc/elite-x/banner/default /etc/elite-x/banner/ssh-banner
-echo "Banner /etc/elite-x/banner/ssh-banner" >> /etc/ssh/sshd_config
-systemctl restart sshd 2>/dev/null || true
 
 # Configure DNS
 [ -f /etc/systemd/resolved.conf ] && {
@@ -1873,6 +2074,7 @@ cat > /etc/systemd/system/dnstt-elite-x.service <<EOF
 [Unit]
 Description=ELITE-X DNSTT Server v3.3.2
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -1886,15 +2088,22 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 EOF
 
-# Create C-based EDNS proxy (replaces Python)
+# Optimize system for VPN
+optimize_system_for_vpn
+
+# Configure SSH for VPN
+configure_ssh_for_vpn
+
+# Create C-based EDNS proxy (replaces Python) - FIXED
 create_c_edns_proxy
 
 # Create proxy service
 if [ -f /usr/local/bin/elite-x-edns-proxy ]; then
     cat > /etc/systemd/system/dnstt-elite-x-proxy.service <<EOF
 [Unit]
-Description=ELITE-X C EDNS Proxy
+Description=ELITE-X C EDNS Proxy (Fixed)
 After=dnstt-elite-x.service
+Wants=dnstt-elite-x.service
 
 [Service]
 Type=simple
@@ -1906,8 +2115,6 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 EOF
-else
-    echo -e "${RED}❌ C EDNS Proxy not found, installation may fail${NC}"
 fi
 
 # Create all C-based monitoring scripts
@@ -1971,6 +2178,7 @@ alias adduser='elite-x-user add'
 alias users='elite-x-user list'
 alias setbw='elite-x-user setbw'
 alias boost='systemctl restart elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt'
+alias fixvpn='systemctl restart dnstt-elite-x dnstt-elite-x-proxy sshd && echo "VPN Fixed!"'
 EOF
 
 # ═══════════════════════════════════════════════════════════
@@ -1984,6 +2192,7 @@ echo -e "${GREEN}║${WHITE}  Domain     :${CYAN} $TDOMAIN${NC}"
 echo -e "${GREEN}║${WHITE}  Location   :${CYAN} $SEL_LOC (MTU: $MTU)${NC}"
 echo -e "${GREEN}║${WHITE}  IP         :${CYAN} $IP${NC}"
 echo -e "${GREEN}║${WHITE}  Version    :${CYAN} v3.3.2 Falcon Ultra C Edition${NC}"
+echo -e "${GREEN}║${WHITE}  Public Key :${CYAN} $STATIC_PUBLIC_KEY${NC}"
 echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
 
 # Service status checks
@@ -1999,6 +2208,7 @@ check_service() {
 
 check_service "DNSTT Server     " "dnstt-elite-x"
 check_service "C EDNS Proxy     " "dnstt-elite-x-proxy"
+check_service "SSH Server       " "sshd"
 check_service "C Bandwidth Mon  " "elite-x-bandwidth"
 check_service "C Conn Monitor   " "elite-x-connmon"
 check_service "C Net Booster    " "elite-x-netbooster"
@@ -2009,8 +2219,11 @@ check_service "C Log Cleaner    " "elite-x-logcleaner"
 
 echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "${YELLOW}Commands: menu | elite-x | users | adduser | setbw | boost${NC}"
+echo -e "${YELLOW}Commands: menu | elite-x | users | adduser | setbw | boost | fixvpn${NC}"
 echo -e "${YELLOW}Re-login or type 'exec bash' to access the dashboard${NC}"
 echo ""
-echo -e "${CYAN}All Python code replaced with optimized C binaries!${NC}"
-echo -e "${CYAN}C Boosters: Network, DNS Cache, RAM, IRQ, Log${NC}"
+echo -e "${CYAN}SLOWDNS CONFIG FOR CLIENT:${NC}"
+echo -e "${WHITE}  NS     : ${GREEN}$TDOMAIN${NC}"
+echo -e "${WHITE}  PUBKEY : ${GREEN}$STATIC_PUBLIC_KEY${NC}"
+echo -e "${WHITE}  PORT   : ${GREEN}53${NC}"
+echo ""
