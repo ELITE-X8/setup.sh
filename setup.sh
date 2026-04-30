@@ -331,64 +331,43 @@ install_3proxy() {
         return 0
     fi
 
-    # Install required dependencies first
-    apt-get install -y build-essential git curl libssl-dev 2>/dev/null || true
+    apt-get install -y build-essential git curl 2>/dev/null || true
 
     cd /tmp
     rm -rf 3proxy 2>/dev/null || true
 
-    # Try git clone first
-    if git clone https://github.com/3proxy/3proxy.git 2>/dev/null; then
+    echo -e "${YELLOW}   → Cloning 3proxy from GitHub...${NC}"
+    git clone https://github.com/z3apa3a/3proxy 2>/dev/null
+    if [ -d /tmp/3proxy ]; then
         cd /tmp/3proxy
-        # Fix compilation issues
-        sed -i 's/-DNOODBC/-DNOODBC -DNOAUTH -DNOPAM/' Makefile.Linux 2>/dev/null || true
-        make -f Makefile.Linux 2>/dev/null || true
+        echo -e "${YELLOW}   → Building 3proxy...${NC}"
+        ln -s Makefile.Linux Makefile 2>/dev/null || true
+        make 2>/dev/null || true
         if [ -f "bin/3proxy" ]; then
             cp bin/3proxy "$THREEPROXY_BIN"
             chmod +x "$THREEPROXY_BIN"
-            echo -e "${GREEN}✅ 3Proxy compiled from source successfully${NC}"
+            echo -e "${GREEN}✅ 3Proxy compiled and installed successfully${NC}"
+        elif [ -f "src/3proxy" ]; then
+            cp src/3proxy "$THREEPROXY_BIN"
+            chmod +x "$THREEPROXY_BIN"
+            echo -e "${GREEN}✅ 3Proxy compiled and installed successfully${NC}"
         fi
     fi
 
-    # If compilation fails, try pre-compiled binary
     if [ ! -f "$THREEPROXY_BIN" ]; then
-        echo -e "${YELLOW}⚠️  Trying pre-compiled binary...${NC}"
-        # Try multiple download sources
-        if curl -fsSL "https://github.com/z3APA3A/3proxy/releases/download/0.9.4/3proxy-0.9.4.x86_64.linux.tar.gz" -o /tmp/3proxy.tar.gz 2>/dev/null; then
-            cd /tmp
-            tar -xzf 3proxy.tar.gz 2>/dev/null || true
-            if [ -f "/tmp/3proxy/3proxy" ]; then
-                cp /tmp/3proxy/3proxy "$THREEPROXY_BIN"
-                chmod +x "$THREEPROXY_BIN"
-                echo -e "${GREEN}✅ 3Proxy binary extracted successfully${NC}"
-            fi
-            rm -f /tmp/3proxy.tar.gz
-        elif curl -fsSL "https://github.com/z3APA3A/3proxy/releases/download/0.9.3/3proxy-0.9.3.linux.x86_64.tar.gz" -o /tmp/3proxy.tar.gz 2>/dev/null; then
-            cd /tmp
-            tar -xzf 3proxy.tar.gz 2>/dev/null || true
-            if [ -f "/tmp/3proxy/3proxy" ]; then
-                cp /tmp/3proxy/3proxy "$THREEPROXY_BIN"
-                chmod +x "$THREEPROXY_BIN"
-                echo -e "${GREEN}✅ 3Proxy binary extracted successfully${NC}"
-            fi
-            rm -f /tmp/3proxy.tar.gz
+        echo -e "${YELLOW}⚠️  Trying alternative installation method...${NC}"
+        cd /tmp/3proxy 2>/dev/null || { cd /tmp && git clone https://github.com/z3apa3a/3proxy && cd /tmp/3proxy; }
+        make -f Makefile.Linux 2>/dev/null || true
+        if [ -f "src/3proxy" ]; then
+            cp src/3proxy "$THREEPROXY_BIN"
+            chmod +x "$THREEPROXY_BIN"
+            echo -e "${GREEN}✅ 3Proxy installed via alternative method${NC}"
         fi
     fi
 
-    # If still no binary, create a simple socks proxy using socat as last resort
     if [ ! -f "$THREEPROXY_BIN" ]; then
-        echo -e "${YELLOW}⚠️  Creating minimal proxy service...${NC}"
-        # Create a wrapper script that provides basic functionality
-        cat > "$THREEPROXY_BIN" <<'EOF'
-#!/bin/bash
-# Minimal proxy wrapper
-echo "3Proxy wrapper started"
-while true; do
-    sleep 3600
-done
-EOF
-        chmod +x "$THREEPROXY_BIN"
-        echo -e "${YELLOW}⚠️ 3Proxy installation partially succeeded (minimal proxy)${NC}"
+        echo -e "${RED}❌ 3Proxy installation failed - continuing without it${NC}"
+        return 1
     fi
 
     mkdir -p "$THREEPROXY_DIR"
@@ -438,7 +417,7 @@ EOF
         echo -e "${GREEN}✅ 3Proxy installed and running${NC}"
         return 0
     else
-        echo -e "${YELLOW}⚠️ 3Proxy service not starting - continuing without it${NC}"
+        echo -e "${YELLOW}⚠️ 3Proxy service not starting${NC}"
         return 1
     fi
 }
@@ -1169,18 +1148,7 @@ settings_menu() {
             12)
                 systemctl stop 3proxy-elite 2>/dev/null
                 rm -f /usr/local/bin/3proxy
-                # Re-source the install_3proxy function or call it directly
-                cd /tmp
-                rm -rf 3proxy 2>/dev/null || true
-                apt-get install -y libssl-dev 2>/dev/null || true
-                if git clone https://github.com/3proxy/3proxy.git 2>/dev/null; then
-                    cd /tmp/3proxy
-                    sed -i 's/-DNOODBC/-DNOODBC -DNOAUTH -DNOPAM/' Makefile.Linux 2>/dev/null || true
-                    make -f Makefile.Linux 2>/dev/null || true
-                    [ -f "bin/3proxy" ] && cp bin/3proxy /usr/local/bin/3proxy && chmod +x /usr/local/bin/3proxy
-                fi
-                systemctl start 3proxy-elite 2>/dev/null
-                echo -e "${GREEN}✅ 3Proxy reinstalled${NC}"
+                install_3proxy
                 read -p "Press Enter..."
                 ;;
             0) return ;;
@@ -1316,7 +1284,7 @@ echo "nameserver 8.8.4.4" >> /etc/resolv.conf
 # Install dependencies
 echo -e "${YELLOW}📦 Installing dependencies...${NC}"
 apt update -y 2>/dev/null || true
-apt install -y curl python3 jq iptables ethtool dnsutils net-tools iproute2 bc build-essential git gcc libssl-dev 2>/dev/null || true
+apt install -y curl python3 jq iptables ethtool dnsutils net-tools iproute2 bc build-essential git gcc 2>/dev/null || true
 
 # Apply kernel optimizations and disable IPv6
 optimize_kernel_and_disable_ipv6
@@ -1361,7 +1329,7 @@ CPUQuota=200%
 WantedBy=multi-user.target
 EOF
 
-# Install 3Proxy (with fixes)
+# Install 3Proxy (FIXED)
 install_3proxy
 
 # Compile C EDNS Proxy
