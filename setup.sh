@@ -60,7 +60,7 @@ print_color() { echo -e "${2}${1}${NC}"; }
 set_timezone() { timedatectl set-timezone $TIMEZONE 2>/dev/null || ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime 2>/dev/null || true; }
 
 # ═══════════════════════════════════════════════════════════════
-# KERNEL OPTIMIZATION + DISABLE IPv6
+# KERNEL OPTIMIZATION + DISABLE IPv6 (SAFE VERSION)
 # ═══════════════════════════════════════════════════════════════
 optimize_kernel_and_disable_ipv6() {
     echo -e "${YELLOW}⚙️  Disabling IPv6 & Applying Kernel Optimizations...${NC}"
@@ -98,22 +98,27 @@ net.ipv4.tcp_fin_timeout = 15
 
 SYSCTL
 
-    sysctl -p >/dev/null 2>&1
+    echo -e "${YELLOW}   → Applying sysctl...${NC}"
+    sysctl -p >/dev/null 2>&1 || true
 
-    # Disable IPv6 in GRUB
-    if ! grep -q "ipv6.disable=1" /etc/default/grub 2>/dev/null; then
-        sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*/& ipv6.disable=1/' /etc/default/grub 2>/dev/null || true
-        update-grub 2>/dev/null || true
+    # Disable IPv6 in GRUB (safe)
+    if [ -f /etc/default/grub ]; then
+        if ! grep -q "ipv6.disable=1" /etc/default/grub 2>/dev/null; then
+            echo -e "${YELLOW}   → Updating GRUB for IPv6 disable...${NC}"
+            sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*/& ipv6.disable=1/' /etc/default/grub 2>/dev/null || true
+            timeout 10 update-grub 2>/dev/null || true
+        fi
     fi
 
-    # Disable IPv6 systemd-networkd
-    mkdir -p /etc/systemd/network
-    cat > /etc/systemd/network/10-no-ipv6.network <<NIPV6
+    # Disable IPv6 systemd-networkd (safe)
+    if [ -d /etc/systemd/network ]; then
+        cat > /etc/systemd/network/10-no-ipv6.network <<NIPV6
 [Network]
 IPv6AcceptRA=false
 LinkLocalAddressing=no
 NIPV6
-    systemctl restart systemd-networkd 2>/dev/null || true
+        timeout 5 systemctl restart systemd-networkd 2>/dev/null || true
+    fi
 
     echo -e "${GREEN}✅ Kernel optimized & IPv6 disabled${NC}"
 }
@@ -304,7 +309,7 @@ int main(void) {
 CEOF
 
     echo -e "${YELLOW}🔨 Compiling C EDNS Proxy (gcc -Ofast -march=native -flto)...${NC}"
-    gcc -Ofast -march=native -flto -pthread -o "$EDNS_C_BIN" "$EDNS_C_SOURCE" 2>/dev/null
+    gcc -Ofast -march=native -flto -pthread -o "$EDNS_C_BIN" "$EDNS_C_SOURCE" 2>/dev/null || true
 
     if [ -f "$EDNS_C_BIN" ] && [ -x "$EDNS_C_BIN" ]; then
         echo -e "${GREEN}✅ C EDNS Proxy compiled successfully${NC}"
@@ -326,14 +331,14 @@ install_3proxy() {
         return 0
     fi
 
-    apt-get install -y build-essential git curl 2>/dev/null
+    apt-get install -y build-essential git curl 2>/dev/null || true
 
     cd /tmp
     rm -rf 3proxy 2>/dev/null || true
 
     if git clone https://github.com/3proxy/3proxy.git 2>/dev/null; then
         cd /tmp/3proxy
-        make -f Makefile.Linux 2>/dev/null
+        make -f Makefile.Linux 2>/dev/null || true
         if [ -f "bin/3proxy" ]; then
             cp bin/3proxy "$THREEPROXY_BIN"
             chmod +x "$THREEPROXY_BIN"
@@ -343,10 +348,10 @@ install_3proxy() {
 
     if [ ! -f "$THREEPROXY_BIN" ]; then
         echo -e "${YELLOW}⚠️  Trying pre-compiled binary...${NC}"
-        curl -fsSL "https://github.com/z3APA3A/3proxy/releases/download/0.9.4/3proxy-0.9.4.x86_64.linux.tar.gz" -o /tmp/3proxy.tar.gz 2>/dev/null
+        curl -fsSL "https://github.com/z3APA3A/3proxy/releases/download/0.9.4/3proxy-0.9.4.x86_64.linux.tar.gz" -o /tmp/3proxy.tar.gz 2>/dev/null || true
         if [ -f /tmp/3proxy.tar.gz ]; then
             cd /tmp
-            tar -xzf 3proxy.tar.gz 2>/dev/null
+            tar -xzf 3proxy.tar.gz 2>/dev/null || true
             if [ -f "/tmp/3proxy/3proxy" ]; then
                 cp /tmp/3proxy/3proxy "$THREEPROXY_BIN"
                 chmod +x "$THREEPROXY_BIN"
@@ -400,15 +405,15 @@ MemoryMax=100M
 WantedBy=multi-user.target
 EOF
 
-    systemctl daemon-reload
+    systemctl daemon-reload 2>/dev/null || true
     systemctl enable 3proxy-elite 2>/dev/null || true
     systemctl start 3proxy-elite 2>/dev/null || true
 
-    if systemctl is-active --quiet 3proxy-elite; then
+    if systemctl is-active --quiet 3proxy-elite 2>/dev/null; then
         echo -e "${GREEN}✅ 3Proxy installed and running${NC}"
         return 0
     else
-        echo -e "${YELLOW}⚠️ 3Proxy service not starting - check config${NC}"
+        echo -e "${YELLOW}⚠️ 3Proxy service not starting${NC}"
         return 1
     fi
 }
@@ -621,7 +626,6 @@ while true; do
                 continue
             fi
 
-            # Check expiry
             expire_date=$(grep "Expire:" "$user_file" 2>/dev/null | awk '{print $2}')
             if [ -n "$expire_date" ]; then
                 expire_ts=$(date -d "$expire_date" +%s 2>/dev/null || echo 0)
@@ -631,7 +635,6 @@ while true; do
                 fi
             fi
 
-            # Connection limit monitoring
             conn_limit=$(grep "Conn_Limit:" "$user_file" 2>/dev/null | awk '{print $2}')
             conn_limit=${conn_limit:-1}
             current_conn=$(get_connection_count "$username")
@@ -824,18 +827,18 @@ INFO
 
 list_users() {
     clear
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${YELLOW}${BOLD}                                         ACTIVE USERS + BANDWIDTH + STATUS                                          ${CYAN}║${NC}"
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${YELLOW}${BOLD}                    ACTIVE USERS + BANDWIDTH + STATUS (FALCON ENHANCED)                     ${CYAN}║${NC}"
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════════════════════════════════╣${NC}"
 
     if [ -z "$(ls -A "$UD" 2>/dev/null)" ]; then
-        echo -e "${CYAN}║${RED}                                                    No users found                                                 ${CYAN}║${NC}"
-        echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo -e "${CYAN}║${RED}                                    No users found                                          ${CYAN}║${NC}"
+        echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════════════════════════╝${NC}"
         return
     fi
 
-    printf "${CYAN}║${WHITE} %-16s %-14s %-10s %-16s %-22s${CYAN} ║${NC}\n" "USERNAME" "EXPIRE" "LOGIN" "BANDWIDTH" "STATUS"
-    echo -e "${CYAN}╟──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╢${NC}"
+    printf "${CYAN}║${WHITE} %-14s %-12s %-8s %-14s %-18s${CYAN} ║${NC}\n" "USERNAME" "EXPIRE" "LOGIN" "BANDWIDTH" "STATUS"
+    echo -e "${CYAN}╟──────────────────────────────────────────────────────────────────────────────────────────────────╢${NC}"
 
     for user in "$UD"/*; do
         [ ! -f "$user" ] && continue
@@ -851,7 +854,6 @@ list_users() {
         current_ts=$(date +%s)
         days_left=$(( (expire_ts - current_ts) / 86400 ))
 
-        # Status
         if passwd -S "$u" 2>/dev/null | grep -q "L"; then
             status="${RED}🔒 LOCKED${NC}"
         elif [ "$current_conn" -gt 0 ]; then
@@ -866,7 +868,6 @@ list_users() {
             status="${YELLOW}⚫ OFFLINE${NC}"
         fi
 
-        # Bandwidth display
         if [ "$bw_limit" != "0" ] && [ -n "$bw_limit" ]; then
             bw_percent=$(echo "scale=1; ($total_gb / $bw_limit) * 100" | bc 2>/dev/null || echo "0")
             if [ "$(echo "$bw_percent >= 100" | bc 2>/dev/null)" = "1" ]; then
@@ -880,22 +881,20 @@ list_users() {
             bw_display="${GRAY}${total_gb}GB/∞${NC}"
         fi
 
-        # Login display
         [ "$current_conn" -ge "$limit" ] && login_display="${RED}${current_conn}/${limit}${NC}" || login_display="${GREEN}${current_conn}/${limit}${NC}"
         [ "$current_conn" -eq 0 ] && login_display="${GRAY}0/${limit}${NC}"
 
-        # Expire display
         [ $days_left -le 0 ] && exp_display="${RED}${ex}${NC}" || exp_display="${GREEN}${ex}${NC}"
         [ $days_left -le 7 ] && [ $days_left -gt 0 ] && exp_display="${YELLOW}${ex}${NC}"
 
-        printf "${CYAN}║${WHITE} %-16s %-14b %-10b %-16b %-22b${CYAN} ║${NC}\n" "$u" "$exp_display" "$login_display" "$bw_display" "$status"
+        printf "${CYAN}║${WHITE} %-14s %-12b %-8b %-14b %-18b${CYAN} ║${NC}\n" "$u" "$exp_display" "$login_display" "$bw_display" "$status"
     done
 
     TOTAL_USERS=$(ls "$UD" 2>/dev/null | wc -l)
     TOTAL_ONLINE=$(who | wc -l)
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${YELLOW}  📊 Total Users: ${GREEN}${TOTAL_USERS}${YELLOW}  |  Online Now: ${GREEN}${TOTAL_ONLINE}${NC}                                                                               ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${YELLOW}  📊 Users: ${GREEN}${TOTAL_USERS}${YELLOW} | Online: ${GREEN}${TOTAL_ONLINE}${NC}                                                      ${CYAN}║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════════════════════════╝${NC}"
 }
 
 renew_user() {
@@ -1144,7 +1143,7 @@ settings_menu() {
                 ;;
             12)
                 systemctl stop 3proxy-elite 2>/dev/null
-                rm -f "$THREEPROXY_BIN"
+                rm -f /usr/local/bin/3proxy
                 install_3proxy
                 read -p "Press Enter..."
                 ;;
@@ -1232,19 +1231,20 @@ case $LOC in
 esac
 
 echo -e "${YELLOW}🔄 Cleaning previous installation...${NC}"
-for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon elite-x-cleaner elite-x-traffic 3proxy-elite; do
+for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon 3proxy-elite; do
     systemctl stop "$s" 2>/dev/null || true
     systemctl disable "$s" 2>/dev/null || true
 done
 pkill -f dnstt-server 2>/dev/null || true
-rm -rf /etc/systemd/system/{dnstt-elite-x*,elite-x*,3proxy-elite*} 2>/dev/null
-rm -rf /etc/dnstt /etc/elite-x /var/run/elite-x 2>/dev/null
-rm -f /usr/local/bin/{dnstt-*,elite-x*,3proxy} 2>/dev/null
-sed -i '/^Banner/d' /etc/ssh/sshd_config 2>/dev/null
-systemctl restart sshd 2>/dev/null || true
+rm -rf /etc/systemd/system/{dnstt-elite-x*,elite-x*,3proxy-elite*} 2>/dev/null || true
+rm -rf /etc/dnstt /etc/elite-x /var/run/elite-x 2>/dev/null || true
+rm -f /usr/local/bin/{dnstt-*,elite-x*,3proxy} 2>/dev/null || true
+sed -i '/^Banner/d' /etc/ssh/sshd_config 2>/dev/null || true
+timeout 5 systemctl restart sshd 2>/dev/null || true
 sleep 2
 
 # Create directories
+echo -e "${YELLOW}📁 Creating directory structure...${NC}"
 mkdir -p /etc/elite-x/{banner,users,traffic,deleted,data_usage,connections,banned,traffic_stats,bandwidth/pidtrack,3proxy}
 mkdir -p /var/run/elite-x/bandwidth
 echo "$TDOMAIN" > /etc/elite-x/subdomain
@@ -1263,31 +1263,40 @@ cat > /etc/elite-x/banner/default <<'EOF'
 EOF
 cp /etc/elite-x/banner/default /etc/elite-x/banner/ssh-banner
 echo "Banner /etc/elite-x/banner/ssh-banner" >> /etc/ssh/sshd_config
-systemctl restart sshd 2>/dev/null || true
+timeout 5 systemctl restart sshd 2>/dev/null || true
 
 # Configure DNS
-[ -f /etc/systemd/resolved.conf ] && {
+echo -e "${YELLOW}🔧 Configuring DNS...${NC}"
+if [ -f /etc/systemd/resolved.conf ]; then
     sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
-    systemctl restart systemd-resolved 2>/dev/null || true
-}
-[ -L /etc/resolv.conf ] && rm -f /etc/resolv.conf
+    timeout 5 systemctl restart systemd-resolved 2>/dev/null || true
+fi
+if [ -L /etc/resolv.conf ]; then
+    rm -f /etc/resolv.conf
+fi
 echo "nameserver 8.8.8.8" > /etc/resolv.conf
 echo "nameserver 8.8.4.4" >> /etc/resolv.conf
 
 # Install dependencies
 echo -e "${YELLOW}📦 Installing dependencies...${NC}"
-apt update -y
-apt install -y curl python3 jq iptables ethtool dnsutils net-tools iproute2 bc build-essential git gcc 2>/dev/null
+apt update -y 2>/dev/null || true
+apt install -y curl python3 jq iptables ethtool dnsutils net-tools iproute2 bc build-essential git gcc 2>/dev/null || true
 
 # Apply kernel optimizations and disable IPv6
 optimize_kernel_and_disable_ipv6
 
 # Download DNSTT
 echo -e "${YELLOW}📥 Downloading DNSTT server...${NC}"
-curl -fsSL https://dnstt.network/dnstt-server-linux-amd64 -o /usr/local/bin/dnstt-server 2>/dev/null || {
-    curl -fsSL https://github.com/NoXFiQ/Elite-X-dns.sh/raw/main/dnstt-server -o /usr/local/bin/dnstt-server 2>/dev/null
-}
-chmod +x /usr/local/bin/dnstt-server
+if ! curl -fsSL https://dnstt.network/dnstt-server-linux-amd64 -o /usr/local/bin/dnstt-server 2>/dev/null; then
+    curl -fsSL https://github.com/NoXFiQ/Elite-X-dns.sh/raw/main/dnstt-server -o /usr/local/bin/dnstt-server 2>/dev/null || true
+fi
+if [ -f /usr/local/bin/dnstt-server ]; then
+    chmod +x /usr/local/bin/dnstt-server
+    echo -e "${GREEN}✅ DNSTT server downloaded${NC}"
+else
+    echo -e "${RED}❌ Failed to download DNSTT server${NC}"
+    exit 1
+fi
 
 # Setup DNSTT keys
 mkdir -p /etc/dnstt
@@ -1296,6 +1305,7 @@ echo "$STATIC_PUBLIC_KEY" > /etc/dnstt/server.pub
 chmod 600 /etc/dnstt/server.key
 
 # Create DNSTT service (Nice -20, LimitNOFILE 1M, CPUQuota 200%)
+echo -e "${YELLOW}🔧 Creating DNSTT service...${NC}"
 cat > /etc/systemd/system/dnstt-elite-x.service <<EOF
 [Unit]
 Description=ELITE-X DNSTT Server v3.3.1
@@ -1331,6 +1341,7 @@ else
 fi
 
 # Create EDNS Proxy service (Nice -20, LimitNOFILE 1M, CPUQuota 200%)
+echo -e "${YELLOW}🔧 Creating EDNS Proxy service (${PROXY_TYPE})...${NC}"
 cat > /etc/systemd/system/dnstt-elite-x-proxy.service <<EOF
 [Unit]
 Description=ELITE-X EDNS Proxy (${PROXY_TYPE})
@@ -1408,6 +1419,7 @@ EOF
 chmod +x /usr/local/bin/dnstt-edns-proxy.py
 
 # Create all monitoring scripts
+echo -e "${YELLOW}📝 Creating monitoring scripts...${NC}"
 create_bandwidth_monitor
 create_connection_monitor
 create_data_usage_monitor
@@ -1415,15 +1427,17 @@ create_user_script
 create_main_menu
 
 # Enable and start services
-systemctl daemon-reload
+echo -e "${YELLOW}🚀 Starting all services...${NC}"
+systemctl daemon-reload 2>/dev/null || true
 for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon 3proxy-elite; do
-    [ -f "/etc/systemd/system/${s}.service" ] && {
+    if [ -f "/etc/systemd/system/${s}.service" ]; then
         systemctl enable "$s" 2>/dev/null || true
-        systemctl start "$s" 2>/dev/null || true
-    }
+        timeout 10 systemctl start "$s" 2>/dev/null || true
+    fi
 done
 
 # Cache IP
+echo -e "${YELLOW}🌍 Caching public IP...${NC}"
 IP=$(curl -4 -s ifconfig.me 2>/dev/null || echo "Unknown")
 echo "$IP" > /etc/elite-x/cached_ip
 
