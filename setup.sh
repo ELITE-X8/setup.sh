@@ -26,11 +26,11 @@ USER_MSG_DIR="/etc/elite-x/user_messages"
 
 show_banner() {
     clear
-    echo -e "${PURPLE}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${YELLOW}${BOLD}    ELITE-X SLOWDNS v3.6 - FALCON ULTRA C + SERVER MSG    ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${GREEN}${BOLD}  GB Limits • Bandwidth • C Boosters • Auto-Delete • User Info  ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${CYAN}${BOLD}         TURBO BOOST EDITION - BBR + FQ + C ENGINE            ${PURPLE}║${NC}"
-    echo -e "${PURPLE}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${PURPLE}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${PURPLE}║${YELLOW}${BOLD} ELITE-X SLOWDNS v3.6 - FALCON   ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${GREEN}${BOLD}  Bandwidth  • Auto  • User Info  ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${CYAN}${BOLD}         TURBO BOOST EDITION       ${PURPLE}║${NC}"
+    echo -e "${PURPLE}╚══════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
 
@@ -48,12 +48,11 @@ force_user_message() {
     
     # Generate user-specific message with real-time data
     cat > "$msg_file" <<EOF
-╔══════════════════════════════════════════════════════════════╗
-║           ⚡ ELITE-X SLOWDNS VPN ⚡                         ║
-║           v3.6 FALCON ULTRA C + USER INFO                  ║
-╠══════════════════════════════════════════════════════════════╣
-║  👤 USERNAME   : $username
-╚══════════════════════════════════════════════════════════════╝
+╔═══════════════════════════════════╗
+║       v3.6 FALCON  USER INFO      ║
+╠═══════════════════════════════════╣
+║  USERNAME   : $username
+╚═══════════════════════════════════╝
 EOF
 
     # Append live data
@@ -92,15 +91,15 @@ EOF
     fi
     
     cat >> "$msg_file" <<EOF
-║  📅 EXPIRE     : $expire_date
-║  ⏳ REMAINING  : ${remaining_days} day(s) + ${remaining_hours} hr(s)
-║  📊 LIMIT GB   : $bw_display
-║  💾 USAGE GB   : ${usage_gb} GB
-║  🔗 CONNECTION : ${current_conn}/${conn_limit}
-║  🟢 STATUS     : $status
-╠══════════════════════════════════════════════════════════════╣
-║  🚀 Enjoy Fast & Stable Connection!                         ║
-╚══════════════════════════════════════════════════════════════╝
+║  EXPIRE    : $expire_date
+║  REMAINING : ${remaining_days} day(s) + ${remaining_hours} hr(s)
+║  LIMIT GB  : $bw_display
+║  USAGE GB  : ${usage_gb} GB
+║  CONNECTION : ${current_conn}/${conn_limit}
+║  🟢 STATUS : $status
+╠═══════════════════════════════════╣
+║ Thanks for using ELITE-X services ║
+╚═══════════════════════════════════╝
 EOF
 
     chmod 644 "$msg_file"
@@ -239,20 +238,19 @@ elif [ $remaining_days -le 3 ]; then
 fi
 
 cat > "$MSG_FILE" <<EOF
-╔══════════════════════════════════════════════════════════════╗
-║           ⚡ ELITE-X SLOWDNS VPN ⚡                         ║
-║           v3.6 FALCON ULTRA C + USER INFO                  ║
-╠══════════════════════════════════════════════════════════════╣
-║  👤 USERNAME   : $USERNAME
-║  📅 EXPIRE     : $expire_date
-║  ⏳ REMAINING  : ${remaining_days} day(s) + ${remaining_hours} hr(s)
-║  📊 LIMIT GB   : $bw_display
-║  💾 USAGE GB   : ${usage_gb} GB
-║  🔗 CONNECTION : ${current_conn}/${conn_limit}
-║  🟢 STATUS     : $status
-╠══════════════════════════════════════════════════════════════╣
-║  🚀 Enjoy Fast & Stable Connection!                         ║
-╚══════════════════════════════════════════════════════════════╝
+╔═══════════════════════════════════╗
+║         ELITE-X SLOWDNS VPN       ║
+╠═══════════════════════════════════╣
+║  USERNAME: $USERNAME
+║  EXPIRE  : $expire_date
+║  REMAINING : ${remaining_days} day(s) + ${remaining_hours} hr(s)
+║  LIMIT GB: $bw_display
+║  USAGE GB: ${usage_gb} GB
+║  CONNECTION: ${current_conn}/${conn_limit}
+║  🟢 STATUS   : $status
+╠═══════════════════════════════════╣
+║ Thanks for using ELITE-X services ║
+╚═══════════════════════════════════╝
 EOF
 
 chmod 644 "$MSG_FILE"
@@ -1285,9 +1283,9 @@ get_bandwidth_usage() {
 
 add_user() {
     clear
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${YELLOW}              CREATE SSH + DNS USER (FALCON ULTRA C)           ${CYAN}║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${YELLOW}        CREATE SSH + DNS USER          ${CYAN}║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
     
     read -p "$(echo -e $GREEN"Username: "$NC)" username
     if id "$username" &>/dev/null; then echo -e "${RED}User already exists!${NC}"; return; fi
@@ -1329,9 +1327,9 @@ INFO
     PUBKEY=$(cat /etc/elite-x/public_key 2>/dev/null || echo "?")
     
     clear
-    echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║${YELLOW}                  USER CREATED SUCCESSFULLY                    ${GREEN}║${NC}"
-    echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${GREEN}╔═════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║${YELLOW}          USER CREATED SUCCESSFULLY                    ${GREEN}║${NC}"
+    echo -e "${GREEN}╠═════════════════════════════════════════════════════════╣${NC}"
     echo -e "${GREEN}║${WHITE}  Username   :${CYAN} $username${NC}"
     echo -e "${GREEN}║${WHITE}  Password   :${CYAN} $password${NC}"
     echo -e "${GREEN}║${WHITE}  Server     :${CYAN} $SERVER${NC}"
@@ -1340,27 +1338,27 @@ INFO
     echo -e "${GREEN}║${WHITE}  Expire     :${CYAN} $expire_date${NC}"
     echo -e "${GREEN}║${WHITE}  Max Login  :${CYAN} $conn_limit${NC}"
     echo -e "${GREEN}║${WHITE}  Bandwidth  :${CYAN} $bw_disp${NC}"
-    echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${GREEN}╠═════════════════════════════════════════════════════════╣${NC}"
     echo -e "${GREEN}║${YELLOW}  SLOWDNS CONFIG:${NC}"
     echo -e "${GREEN}║${WHITE}  NS: ${CYAN}$SERVER${NC}"
     echo -e "${GREEN}║${WHITE}  PUBKEY: ${CYAN}$PUBKEY${NC}"
-    echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${GREEN}╚═════════════════════════════════════════════════════════╝${NC}"
 }
 
 list_users() {
     clear
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${YELLOW}${BOLD}                    ACTIVE USERS                       ${CYAN}║${NC}"
-    echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${YELLOW}${BOLD}         ACTIVE USERS               ${CYAN}║${NC}"
+    echo -e "${CYAN}╠═══════════════════════════════════════════════════════════╣${NC}"
     
     if [ -z "$(ls -A "$UD" 2>/dev/null)" ]; then
         echo -e "${CYAN}║${RED}                                    No users found                                          ${CYAN}║${NC}"
-        echo -e "${CYAN}╚═════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
         return
     fi
     
     printf "${CYAN}║${WHITE} %-14s %-12s %-8s %-14s %-18s${CYAN} ║${NC}\n" "USERNAME" "EXPIRE" "LOGIN" "BANDWIDTH" "STATUS"
-    echo -e "${CYAN}╟────────────────────────────────────────────────────────────────────────────╢${NC}"
+    echo -e "${CYAN}╟────────────────────────────────────────────────────────────╢${NC}"
     
     for user in "$UD"/*; do
         [ ! -f "$user" ] && continue
@@ -1400,9 +1398,9 @@ list_users() {
     
     TOTAL_USERS=$(ls "$UD" 2>/dev/null | wc -l)
     TOTAL_ONLINE=$(who | wc -l)
-    echo -e "${CYAN}╠════════════════════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}╠═══════════════════════════════════════════════════════════╣${NC}"
     echo -e "${CYAN}║${YELLOW}  Users: ${GREEN}${TOTAL_USERS}${YELLOW} | Online: ${GREEN}${TOTAL_ONLINE}${NC}                                                      ${CYAN}║${NC}"
-    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
 }
 
 renew_user() {
@@ -1451,9 +1449,9 @@ details_user() {
     [ ! -f "$UD/$username" ] && { echo -e "${RED}User not found!${NC}"; return; }
     
     clear
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${YELLOW}              USER DETAILS                         ${CYAN}║${NC}"
-    echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${YELLOW}              USER DETAILS                  ${CYAN}║${NC}"
+    echo -e "${CYAN}╠════════════════════════════════════════════════════════════╣${NC}"
     cat "$UD/$username" | while read line; do echo -e "${CYAN}║${WHITE}  $line${NC}"; done
     
     total_gb=$(get_bandwidth_usage "$username")
@@ -1461,10 +1459,10 @@ details_user() {
     bw_limit=${bw_limit:-0}
     current_conn=$(get_connection_count "$username")
     
-    echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}╠════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${CYAN}║${WHITE}  Active Sessions: ${GREEN}${current_conn}${NC}"
     echo -e "${CYAN}║${WHITE}  Bandwidth Used: ${GREEN}${total_gb} GB${NC} / ${YELLOW}${bw_limit:-Unlimited} GB${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
 }
 
 case $1 in
@@ -1534,9 +1532,9 @@ show_dashboard() {
         done
     fi
     
-    echo -e "${PURPLE}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${YELLOW}${BOLD}      ELITE-X v3.6 - FALCON + USER MSG       ${PURPLE}║${NC}"
-    echo -e "${PURPLE}╠════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${PURPLE}╔═════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${PURPLE}║${YELLOW}${BOLD}    ELITE-X v3.6 - FALCON           ${PURPLE}║${NC}"
+    echo -e "${PURPLE}╠═════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${PURPLE}║${WHITE}  NS        :${GREEN} $SUB${NC}"
     echo -e "${PURPLE}║${WHITE}  IP        :${GREEN} $IP${NC}"
     echo -e "${PURPLE}║${WHITE}  Location  :${GREEN} $LOCATION (MTU: $MTU)${NC}"
@@ -1546,7 +1544,7 @@ show_dashboard() {
     echo -e "${PURPLE}║${WHITE}  User Msg   : $SMSG${NC}"
     echo -e "${PURPLE}║${WHITE}  Users     :${GREEN} $TOTAL_USERS total, $ONLINE online${NC}"
     echo -e "${PURPLE}║${WHITE}  Total BW  :${YELLOW} ${TOTAL_BW} GB${NC}"
-    echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${PURPLE}╚═════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
 
@@ -1772,9 +1770,9 @@ MENUEOF
 # FUNCTION to run installation without set -e
 run_installation() {
     show_banner
-    echo -e "${YELLOW}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║${GREEN}                    ACTIVATION REQUIRED                          ${YELLOW}║${NC}"
-    echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${YELLOW}╔════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${YELLOW}║${GREEN}          ACTIVATION REQUIRED          ${YELLOW}║${NC}"
+    echo -e "${YELLOW}╚════════════════════════════════════════════════════════╝${NC}"
     read -p "$(echo -e $CYAN"Activation Key: "$NC)" ACTIVATION_INPUT
 
     if [ "$ACTIVATION_INPUT" != "$ACTIVATION_KEY" ] && [ "$ACTIVATION_INPUT" != "Whtsapp +255713-628-668" ]; then
@@ -1786,9 +1784,9 @@ run_installation() {
 
     set_timezone
 
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${WHITE}                  ENTER YOUR NAMESERVER [NS]                    ${CYAN}║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${WHITE}        ENTER YOUR NAMESERVER [NS]      ${CYAN}║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
     read -p "$(echo -e $GREEN"Nameserver: "$NC)" TDOMAIN
 
     echo -e "${YELLOW}Select VPS location:${NC}"
@@ -1975,15 +1973,15 @@ EOF
     # FINAL DISPLAY
     # ═══════════════════════════════════════════════════════════
     clear
-    echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║${YELLOW}${BOLD}    ELITE-X v3.6 FALCON + USER MSG - INSTALLED!  ${GREEN}║${NC}"
-    echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${GREEN}╔═════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║${YELLOW}${BOLD}    ELITE-X v3.6 FALCON  INSTALLED!  ${GREEN}║${NC}"
+    echo -e "${GREEN}╠═════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${GREEN}║${WHITE}  Domain     :${CYAN} $TDOMAIN${NC}"
     echo -e "${GREEN}║${WHITE}  Location   :${CYAN} $SEL_LOC (MTU: $MTU)${NC}"
     echo -e "${GREEN}║${WHITE}  IP         :${CYAN} $IP${NC}"
-    echo -e "${GREEN}║${WHITE}  Version    :${CYAN} v3.6 Falcon Ultra C + User Message${NC}"
+    echo -e "${GREEN}║${WHITE}  Version    :${CYAN} v3.6 Falcon Ultra ${NC}"
     echo -e "${GREEN}║${WHITE}  Public Key :${CYAN} $STATIC_PUBLIC_KEY${NC}"
-    echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${GREEN}╠═════════════════════════════════════════════════════════════╣${NC}"
 
     # Check services (all systemd services only)
     check_svc() {
@@ -2014,7 +2012,7 @@ EOF
         echo -e "${RED}║  ❌ User Message    : Inactive${NC}"
     fi
 
-    echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${GREEN}╚═════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${YELLOW}Commands: menu | elite-x | users | adduser | setbw | boost | fixvpn | refreshmsg | testmsg${NC}"
     echo -e "${YELLOW}Re-login or type 'exec bash' to access the dashboard${NC}"
