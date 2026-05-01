@@ -89,11 +89,22 @@ EOF
     fi
     
     cat >> "$msg_file" <<EOF
+══════════════════════════════
+
 EXPIRE    : $expire_date
+─────────────────────────────
+
 REMAINING : ${remaining_days} day(s) + ${remaining_hours} hr(s)
+─────────────────────────────
+
 LIMIT GB  : $bw_display
+─────────────────────────────
+
 USAGE GB  : ${usage_gb} GB
+─────────────────────────────
 CONNECTION : ${current_conn}/${conn_limit}
+─────────────────────────────
+
 STATUS : $status
 ══════════════════════════════
      Thanks for using ELITE-X services
@@ -237,22 +248,30 @@ fi
 
 cat > "$MSG_FILE" <<EOF
 ═════════════════════════════
-            ELITE-X SLOWDNS VPN  
+
+ELITE-X SLOWDNS VPN  
 ═════════════════════════════
-            USERNAME: $USERNAME
+
+ USERNAME: $USERNAME
 ─────────────────────────────
-            EXPIRE  : $expire_date
+
+ EXPIRE  : $expire_date
 ─────────────────────────────
-            REMAINING : ${remaining_days} day(s) + ${remaining_hours} hr(s)
+
+ REMAINING : ${remaining_days} day(s) + ${remaining_hours} hr(s)
 ─────────────────────────────
-            LIMIT GB: $bw_display
-            USAGE GB: ${usage_gb} GB
+
+LIMIT GB: $bw_display
+USAGE GB: ${usage_gb} GB
 ─────────────────────────────
-            CONNECTION: ${current_conn}/${conn_limit}
+
+CONNECTION: ${current_conn}/${conn_limit}
 ─────────────────────────────
-            STATUS   : $status
+
+STATUS   : $status
 ═════════════════════════════
-            Thanks for using ELITE-X services 
+
+Thanks for using ELITE-X services 
 ═════════════════════════════
 EOF
 
