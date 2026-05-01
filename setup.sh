@@ -1,6 +1,6 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════════╗
-#  ELITE-X v3.7 - FALCON ULTRA C + SERVER MSG (STABLE)
+#  ELITE-X SLOWDNS SCRIPT v3.6 - FALCON ULTRA C + SERVER MESSAGE
 # ╚══════════════════════════════════════════════════════════════╝
 set -euo pipefail
 
@@ -27,7 +27,7 @@ SERVER_MSG_DIR="/etc/elite-x/server_msg"
 show_banner() {
     clear
     echo -e "${PURPLE}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${YELLOW}${BOLD}    ELITE-X SLOWDNS v3.7 - FALCON ULTRA C + SERVER MSG    ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${YELLOW}${BOLD}    ELITE-X SLOWDNS v3.6 - FALCON ULTRA C + SERVER MSG    ${PURPLE}║${NC}"
     echo -e "${PURPLE}║${GREEN}${BOLD}  GB Limits • Bandwidth • C Boosters • Auto-Delete • User Info  ${PURPLE}║${NC}"
     echo -e "${PURPLE}║${CYAN}${BOLD}         TURBO BOOST EDITION - BBR + FQ + C ENGINE            ${PURPLE}║${NC}"
     echo -e "${PURPLE}╚═══════════════════════════════════════════════════════════════╝${NC}"
@@ -87,62 +87,73 @@ configure_ssh_for_vpn() {
     echo -e "${YELLOW}🔧 Configuring SSH for VPN + Server Message...${NC}"
     
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak 2>/dev/null || true
+    
     sed -i '/^Banner/d' /etc/ssh/sshd_config 2>/dev/null
     sed -i '/Include \/etc\/ssh\/sshd_config.d\/\*\.conf/d' /etc/ssh/sshd_config 2>/dev/null
     
     cat > /etc/ssh/sshd_config.d/elite-x-vpn.conf <<'SSHCONF'
+# ELITE-X VPN Configuration
 Port 22
 AddressFamily any
 ListenAddress 0.0.0.0
 ListenAddress ::
+
 PermitRootLogin yes
 PasswordAuthentication yes
 PubkeyAuthentication yes
 ChallengeResponseAuthentication no
 UsePAM yes
+
 AllowTcpForwarding yes
 AllowAgentForwarding yes
 GatewayPorts yes
 PermitTunnel yes
 PermitOpen any
+
 TCPKeepAlive yes
 ClientAliveInterval 60
 ClientAliveCountMax 3
 MaxStartups 100:30:200
 MaxSessions 100
+
 UseDNS no
 LogLevel VERBOSE
+
 Banner /etc/elite-x/server_msg/banner
 SSHCONF
 
     echo "Include /etc/ssh/sshd_config.d/*.conf" >> /etc/ssh/sshd_config
+    
     systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
     
     echo -e "${GREEN}✅ SSH configured with Server Message${NC}"
 }
 
 # ═══════════════════════════════════════════════════════════
-# SERVER MESSAGE GENERATOR
+# SERVER MESSAGE GENERATOR (DINAMIC UPDATER)
 # ═══════════════════════════════════════════════════════════
 create_server_message_updater() {
     echo -e "${YELLOW}📝 Creating Server Message System...${NC}"
     
     mkdir -p "$SERVER_MSG_DIR"
     
+    # Create the banner updater script
     cat > /usr/local/bin/elite-x-banner-updater <<'BANNEREOF'
 #!/bin/bash
 USER_DB="/etc/elite-x/users"
 BW_DIR="/etc/elite-x/bandwidth"
 MSG_DIR="/etc/elite-x/server_msg"
+
 mkdir -p "$MSG_DIR"
 
 generate_banner() {
     local username="$1"
     
+    # Default generic banner
     cat > "$MSG_DIR/banner" <<'DEFAULTBAN'
 ╔═══════════════════════════════════════════╗
 ║     ⚡ ELITE-X SLOWDNS VPN ⚡            ║
-║     v3.7 FALCON ULTRA C                 ║
+║     v3.6 FALCON ULTRA C                 ║
 ╠═══════════════════════════════════════════╣
 ║  🔐 Connected Successfully!             ║
 ╠═══════════════════════════════════════════╣
@@ -150,6 +161,7 @@ generate_banner() {
 ╚═══════════════════════════════════════════╝
 DEFAULTBAN
 
+    # If username provided and user file exists, generate custom banner
     if [ -n "$username" ] && [ -f "$USER_DB/$username" ]; then
         local expire_date=$(grep "Expire:" "$USER_DB/$username" | awk '{print $2}')
         local bandwidth_gb=$(grep "Bandwidth_GB:" "$USER_DB/$username" | awk '{print $2}')
@@ -158,14 +170,17 @@ DEFAULTBAN
         bandwidth_gb=${bandwidth_gb:-0}
         conn_limit=${conn_limit:-1}
         
+        # Get bandwidth usage
         local usage_bytes=$(cat "$BW_DIR/${username}.usage" 2>/dev/null || echo 0)
         local usage_gb=$(echo "scale=2; $usage_bytes / 1073741824" | bc 2>/dev/null || echo "0.00")
         
+        # Get active connections
         local current_conn=0
         current_conn=$(who | grep -wc "$username" 2>/dev/null || echo 0)
         [ "$current_conn" -eq 0 ] && current_conn=$(ps aux 2>/dev/null | grep "sshd:" | grep "$username" | grep -v grep | grep -v "sshd:.*@notty" | wc -l)
         current_conn=${current_conn:-0}
         
+        # Calculate remaining time
         local now_ts=$(date +%s)
         local expire_ts=$(date -d "$expire_date" +%s 2>/dev/null || echo 0)
         local remaining_seconds=$((expire_ts - now_ts))
@@ -175,9 +190,11 @@ DEFAULTBAN
         [ $remaining_days -lt 0 ] && remaining_days=0
         [ $remaining_hours -lt 0 ] && remaining_hours=0
         
+        # Format bandwidth display
         local bw_display="Unlimited"
         [ "$bandwidth_gb" != "0" ] && bw_display="${bandwidth_gb} GB"
         
+        # Status indicator
         local status="🟢 ACTIVE"
         if [ $remaining_days -le 0 ]; then
             status="⛔ EXPIRED"
@@ -185,10 +202,11 @@ DEFAULTBAN
             status="⚠️ EXPIRING SOON"
         fi
         
+        # Build the dynamic banner
         cat > "$MSG_DIR/banner" <<BANNER
 ╔═══════════════════════════════════════════╗
 ║     ⚡ ELITE-X SLOWDNS VPN ⚡            ║
-║     v3.7 FALCON ULTRA C                 ║
+║     v3.6 FALCON ULTRA C                 ║
 ╠═══════════════════════════════════════════╣
 ║  ACCOUNT STATUS
 ║
@@ -208,6 +226,7 @@ BANNER
     fi
 }
 
+# Run with username argument
 if [ -n "${1:-}" ]; then
     generate_banner "$1"
 else
@@ -215,12 +234,16 @@ else
 fi
 BANNEREOF
     chmod +x /usr/local/bin/elite-x-banner-updater
+    
+    # Generate initial generic banner
     /usr/local/bin/elite-x-banner-updater
     
+    # Create a systemd timer service to refresh messages periodically
     cat > /etc/systemd/system/elite-x-banner-refresh.service <<'EOF'
 [Unit]
 Description=ELITE-X Banner Refresh Service
 After=network.target
+
 [Service]
 Type=oneshot
 ExecStart=/bin/bash -c 'for user in /etc/elite-x/users/*; do [ -f "$user" ] && /usr/local/bin/elite-x-banner-updater "$(basename "$user")" 2>/dev/null; done; /usr/local/bin/elite-x-banner-updater'
@@ -230,10 +253,12 @@ EOF
 [Unit]
 Description=ELITE-X Banner Refresh Timer (Every 5 min)
 Requires=elite-x-banner-refresh.service
+
 [Timer]
 OnBootSec=30sec
 OnUnitActiveSec=5min
 AccuracySec=5s
+
 [Install]
 WantedBy=timers.target
 EOF
@@ -246,20 +271,25 @@ EOF
 }
 
 # ═══════════════════════════════════════════════════════════
-# PAM CONFIGURATION
+# PAM CONFIGURATION FOR DYNAMIC BANNER ON LOGIN
 # ═══════════════════════════════════════════════════════════
 configure_pam_banner() {
-    echo -e "${YELLOW}🔧 Configuring PAM for dynamic banner...${NC}"
+    echo -e "${YELLOW}🔧 Configuring PAM for dynamic banner on login...${NC}"
+    
+    # Remove old entry if exists
     sed -i '/elite-x-banner-updater/d' /etc/pam.d/sshd 2>/dev/null
+    
+    # Add pam_exec to run on every SSH login
     sed -i '1i session    optional     pam_exec.so seteuid /usr/local/bin/elite-x-banner-updater' /etc/pam.d/sshd
-    echo -e "${GREEN}✅ PAM configured${NC}"
+    
+    echo -e "${GREEN}✅ PAM configured - banner updates on each login${NC}"
 }
 
 # ═══════════════════════════════════════════════════════════
 # C-BASED EDNS PROXY (FIXED)
 # ═══════════════════════════════════════════════════════════
 create_c_edns_proxy() {
-    echo -e "${YELLOW}📝 Compiling C-based EDNS Proxy...${NC}"
+    echo -e "${YELLOW}📝 Compiling C-based EDNS Proxy (Fixed)...${NC}"
     
     cat > /tmp/edns_proxy.c <<'CEOF'
 #include <stdio.h>
@@ -279,8 +309,10 @@ create_c_edns_proxy() {
 #define BACKEND_PORT 5300
 #define MAX_EDNS_SIZE 1800
 #define MIN_EDNS_SIZE 512
+#define MAX_THREADS 200
 
 static volatile int running = 1;
+
 void signal_handler(int sig) { running = 0; }
 
 int skip_name(const unsigned char *data, int offset, int max_len) {
@@ -303,31 +335,52 @@ void modify_edns(unsigned char *data, int *len, unsigned short max_size) {
     memcpy(&arcount, data + 10, 2); arcount = ntohs(arcount);
     
     int i;
-    for (i = 0; i < qdcount; i++) { offset = skip_name(data, offset, *len); if (offset + 4 > *len) return; offset += 4; }
+    for (i = 0; i < qdcount; i++) {
+        offset = skip_name(data, offset, *len);
+        if (offset + 4 > *len) return;
+        offset += 4;
+    }
     for (i = 0; i < ancount + nscount; i++) {
         offset = skip_name(data, offset, *len);
         if (offset + 10 > *len) return;
-        unsigned short rdlength; memcpy(&rdlength, data + offset + 8, 2); rdlength = ntohs(rdlength);
+        unsigned short rdlength;
+        memcpy(&rdlength, data + offset + 8, 2);
+        rdlength = ntohs(rdlength);
         offset += 10 + rdlength;
     }
     for (i = 0; i < arcount; i++) {
         offset = skip_name(data, offset, *len);
         if (offset + 10 > *len) return;
-        unsigned short rrtype; memcpy(&rrtype, data + offset, 2); rrtype = ntohs(rrtype);
-        if (rrtype == 41) { unsigned short size = htons(max_size); memcpy(data + offset + 2, &size, 2); return; }
-        unsigned short rdlength; memcpy(&rdlength, data + offset + 8, 2); rdlength = ntohs(rdlength);
+        unsigned short rrtype;
+        memcpy(&rrtype, data + offset, 2);
+        rrtype = ntohs(rrtype);
+        if (rrtype == 41) {
+            unsigned short size = htons(max_size);
+            memcpy(data + offset + 2, &size, 2);
+            return;
+        }
+        unsigned short rdlength;
+        memcpy(&rdlength, data + offset + 8, 2);
+        rdlength = ntohs(rdlength);
         offset += 10 + rdlength;
     }
 }
 
-typedef struct { int sock; struct sockaddr_in client_addr; socklen_t client_len; unsigned char *data; int data_len; } proxy_thread_args_t;
+typedef struct {
+    int sock;
+    struct sockaddr_in client_addr;
+    socklen_t client_len;
+    unsigned char *data;
+    int data_len;
+} proxy_thread_args_t;
 
 void *handle_proxy(void *arg) {
     proxy_thread_args_t *args = (proxy_thread_args_t *)arg;
     int backend_sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (backend_sock < 0) { free(args->data); free(args); return NULL; }
     
-    struct timeval btv; btv.tv_sec = 5; btv.tv_usec = 0;
+    struct timeval btv;
+    btv.tv_sec = 5; btv.tv_usec = 0;
     setsockopt(backend_sock, SOL_SOCKET, SO_RCVTIMEO, &btv, sizeof(btv));
     
     struct sockaddr_in backend_addr;
@@ -339,56 +392,90 @@ void *handle_proxy(void *arg) {
     unsigned char response[BUFFER_SIZE];
     int len = args->data_len;
     modify_edns(args->data, &len, MAX_EDNS_SIZE);
+    
     sendto(backend_sock, args->data, len, 0, (struct sockaddr*)&backend_addr, sizeof(backend_addr));
     
     socklen_t back_len = sizeof(backend_addr);
     int rn = recvfrom(backend_sock, response, BUFFER_SIZE, 0, (struct sockaddr*)&backend_addr, &back_len);
     
-    if (rn > 0) { len = rn; modify_edns(response, &len, MIN_EDNS_SIZE); sendto(args->sock, response, len, 0, (struct sockaddr*)&args->client_addr, args->client_len); }
+    if (rn > 0) {
+        len = rn;
+        modify_edns(response, &len, MIN_EDNS_SIZE);
+        sendto(args->sock, response, len, 0, (struct sockaddr*)&args->client_addr, args->client_len);
+    }
     
-    close(backend_sock); free(args->data); free(args); return NULL;
+    close(backend_sock);
+    free(args->data);
+    free(args);
+    return NULL;
 }
 
 int main() {
-    signal(SIGTERM, signal_handler); signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
+    
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) { perror("socket creation failed"); return 1; }
-    int reuse = 1; setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    
+    int reuse = 1;
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    
     int rcvbuf = 262144, sndbuf = 262144;
     setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
     setsockopt(sock, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
     
-    struct sockaddr_in addr; memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET; addr.sin_addr.s_addr = INADDR_ANY; addr.sin_port = htons(DNS_PORT);
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(DNS_PORT);
     
-    system("fuser -k 53/udp 2>/dev/null"); usleep(1000000);
+    system("fuser -k 53/udp 2>/dev/null");
+    usleep(1000000);
     
     if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        system("fuser -k 53/udp 2>/dev/null"); usleep(2000000);
-        if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) { perror("bind failed"); close(sock); return 1; }
+        system("fuser -k 53/udp 2>/dev/null");
+        usleep(2000000);
+        if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+            perror("bind failed"); close(sock); return 1;
+        }
     }
     
-    struct timeval tv; tv.tv_sec = 1; tv.tv_usec = 0;
+    struct timeval tv;
+    tv.tv_sec = 1; tv.tv_usec = 0;
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    fprintf(stderr, "C-EDNS Proxy running on port 53\n");
+    
+    fprintf(stderr, "C-EDNS Proxy running on port 53 (fixed version)\n");
     
     while (running) {
-        struct sockaddr_in client_addr; socklen_t client_len = sizeof(client_addr);
+        struct sockaddr_in client_addr;
+        socklen_t client_len = sizeof(client_addr);
+        
         unsigned char *buffer = malloc(BUFFER_SIZE);
         if (!buffer) { usleep(10000); continue; }
+        
         int n = recvfrom(sock, buffer, BUFFER_SIZE, 0, (struct sockaddr*)&client_addr, &client_len);
         if (n < 0) { free(buffer); if (errno == EAGAIN || errno == EWOULDBLOCK) continue; if (!running) break; usleep(10000); continue; }
         
         proxy_thread_args_t *args = malloc(sizeof(proxy_thread_args_t));
         if (!args) { free(buffer); continue; }
-        args->sock = sock; args->client_addr = client_addr; args->client_len = client_len; args->data = buffer; args->data_len = n;
         
-        pthread_t thread; pthread_attr_t attr;
-        pthread_attr_init(&attr); pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        args->sock = sock;
+        args->client_addr = client_addr;
+        args->client_len = client_len;
+        args->data = buffer;
+        args->data_len = n;
+        
+        pthread_t thread;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
         pthread_create(&thread, &attr, handle_proxy, args);
         pthread_attr_destroy(&attr);
     }
-    close(sock); return 0;
+    
+    close(sock);
+    return 0;
 }
 CEOF
 
@@ -397,7 +484,7 @@ CEOF
     
     if [ -f /usr/local/bin/elite-x-edns-proxy ]; then
         chmod +x /usr/local/bin/elite-x-edns-proxy
-        echo -e "${GREEN}✅ C EDNS Proxy compiled${NC}"
+        echo -e "${GREEN}✅ C EDNS Proxy compiled successfully${NC}"
         return 0
     else
         echo -e "${RED}❌ C EDNS Proxy compilation failed${NC}"
@@ -406,7 +493,7 @@ CEOF
 }
 
 # ═══════════════════════════════════════════════════════════
-# C-BASED BANDWIDTH MONITOR
+# C-BASED BANDWIDTH MONITOR (ENHANCED)
 # ═══════════════════════════════════════════════════════════
 create_c_bandwidth_monitor() {
     echo -e "${YELLOW}📝 Compiling C Bandwidth Monitor...${NC}"
@@ -434,83 +521,129 @@ static volatile int running = 1;
 void signal_handler(int sig) { running = 0; }
 
 long long get_process_io(int pid) {
-    char path[256]; snprintf(path, sizeof(path), "/proc/%d/io", pid);
-    FILE *f = fopen(path, "r"); if (!f) return 0;
-    long long rchar = 0, wchar = 0; char line[256];
+    char path[256];
+    snprintf(path, sizeof(path), "/proc/%d/io", pid);
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+    long long rchar = 0, wchar = 0;
+    char line[256];
     while (fgets(line, sizeof(line), f)) {
         if (strncmp(line, "rchar:", 6) == 0) sscanf(line + 7, "%lld", &rchar);
         else if (strncmp(line, "wchar:", 6) == 0) sscanf(line + 7, "%lld", &wchar);
     }
-    fclose(f); return rchar + wchar;
+    fclose(f);
+    return rchar + wchar;
 }
 
 int is_numeric(const char *str) { for (; *str; str++) if (!isdigit(*str)) return 0; return 1; }
 
 int get_sshd_pids(const char *username, int *pids, int max_pids) {
-    int count = 0; DIR *proc = opendir("/proc"); if (!proc) return 0;
+    int count = 0;
+    DIR *proc = opendir("/proc");
+    if (!proc) return 0;
     struct dirent *entry;
     while ((entry = readdir(proc)) && count < max_pids) {
         if (!is_numeric(entry->d_name)) continue;
         int pid = atoi(entry->d_name);
-        char comm_path[256]; snprintf(comm_path, sizeof(comm_path), "/proc/%d/comm", pid);
-        FILE *f = fopen(comm_path, "r"); if (!f) continue;
-        char comm[256] = {0}; fgets(comm, sizeof(comm), f); fclose(f); comm[strcspn(comm, "\n")] = 0;
+        char comm_path[256];
+        snprintf(comm_path, sizeof(comm_path), "/proc/%d/comm", pid);
+        FILE *f = fopen(comm_path, "r");
+        if (!f) continue;
+        char comm[256] = {0};
+        fgets(comm, sizeof(comm), f);
+        fclose(f);
+        comm[strcspn(comm, "\n")] = 0;
         if (strcmp(comm, "sshd") == 0) {
-            char status_path[256]; snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
-            FILE *sf = fopen(status_path, "r"); if (!sf) continue;
+            char status_path[256];
+            snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
+            FILE *sf = fopen(status_path, "r");
+            if (!sf) continue;
             char line[256], uid_str[32] = {0};
-            while (fgets(line, sizeof(line), sf)) { if (strncmp(line, "Uid:", 4) == 0) { sscanf(line, "%*s %s", uid_str); break; } }
+            while (fgets(line, sizeof(line), sf)) {
+                if (strncmp(line, "Uid:", 4) == 0) { sscanf(line, "%*s %s", uid_str); break; }
+            }
             fclose(sf);
-            int uid = atoi(uid_str); struct passwd *pw = getpwuid(uid);
+            int uid = atoi(uid_str);
+            struct passwd *pw = getpwuid(uid);
             if (pw && strcmp(pw->pw_name, username) == 0) {
-                char stat_path[256]; snprintf(stat_path, sizeof(stat_path), "/proc/%d/stat", pid);
+                char stat_path[256];
+                snprintf(stat_path, sizeof(stat_path), "/proc/%d/stat", pid);
                 FILE *stf = fopen(stat_path, "r");
-                if (stf) { int ppid; char stat_buf[1024]; fgets(stat_buf, sizeof(stat_buf), stf); sscanf(stat_buf, "%*d %*s %*c %d", &ppid); fclose(stf); if (ppid != 1) pids[count++] = pid; }
+                if (stf) {
+                    int ppid;
+                    char stat_buf[1024];
+                    fgets(stat_buf, sizeof(stat_buf), stf);
+                    sscanf(stat_buf, "%*d %*s %*c %d", &ppid);
+                    fclose(stf);
+                    if (ppid != 1) pids[count++] = pid;
+                }
             }
         }
     }
-    closedir(proc); return count;
+    closedir(proc);
+    return count;
 }
 
 int main() {
-    signal(SIGTERM, signal_handler); signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
     mkdir(BW_DIR, 0755); mkdir(PID_DIR, 0755); mkdir(BANNED_DIR, 0755);
     
     while (running) {
-        DIR *user_dir = opendir(USER_DB); if (!user_dir) { sleep(SCAN_INTERVAL); continue; }
+        DIR *user_dir = opendir(USER_DB);
+        if (!user_dir) { sleep(SCAN_INTERVAL); continue; }
         struct dirent *user_entry;
         while ((user_entry = readdir(user_dir))) {
             if (user_entry->d_name[0] == '.') continue;
-            char user_file[512]; snprintf(user_file, sizeof(user_file), "%s/%s", USER_DB, user_entry->d_name);
-            FILE *uf = fopen(user_file, "r"); if (!uf) continue;
-            double bandwidth_gb = 0; char line[256];
-            while (fgets(line, sizeof(line), uf)) { if (strncmp(line, "Bandwidth_GB:", 13) == 0) sscanf(line + 13, "%lf", &bandwidth_gb); }
-            fclose(uf); if (bandwidth_gb <= 0) continue;
+            char user_file[512];
+            snprintf(user_file, sizeof(user_file), "%s/%s", USER_DB, user_entry->d_name);
+            FILE *uf = fopen(user_file, "r");
+            if (!uf) continue;
+            double bandwidth_gb = 0;
+            char line[256];
+            while (fgets(line, sizeof(line), uf)) {
+                if (strncmp(line, "Bandwidth_GB:", 13) == 0) sscanf(line + 13, "%lf", &bandwidth_gb);
+            }
+            fclose(uf);
+            if (bandwidth_gb <= 0) continue;
             
-            int pids[100]; int pid_count = get_sshd_pids(user_entry->d_name, pids, 100);
-            if (pid_count == 0) { char cmd[512]; snprintf(cmd, sizeof(cmd), "rm -f %s/%s__*.last 2>/dev/null", PID_DIR, user_entry->d_name); system(cmd); continue; }
+            int pids[100];
+            int pid_count = get_sshd_pids(user_entry->d_name, pids, 100);
+            if (pid_count == 0) {
+                char cmd[512];
+                snprintf(cmd, sizeof(cmd), "rm -f %s/%s__*.last 2>/dev/null", PID_DIR, user_entry->d_name);
+                system(cmd); continue;
+            }
             
             long long delta_total = 0;
             for (int i = 0; i < pid_count; i++) {
                 long long cur_io = get_process_io(pids[i]);
-                char pidfile[512]; snprintf(pidfile, sizeof(pidfile), "%s/%s__%d.last", PID_DIR, user_entry->d_name, pids[i]);
+                char pidfile[512];
+                snprintf(pidfile, sizeof(pidfile), "%s/%s__%d.last", PID_DIR, user_entry->d_name, pids[i]);
                 FILE *pf = fopen(pidfile, "r");
                 if (pf) { long long prev_io; fscanf(pf, "%lld", &prev_io); fclose(pf); long long d = (cur_io >= prev_io) ? (cur_io - prev_io) : cur_io; delta_total += d; }
-                pf = fopen(pidfile, "w"); if (pf) { fprintf(pf, "%lld\n", cur_io); fclose(pf); }
+                pf = fopen(pidfile, "w");
+                if (pf) { fprintf(pf, "%lld\n", cur_io); fclose(pf); }
             }
             
-            char usagefile[512]; snprintf(usagefile, sizeof(usagefile), "%s/%s.usage", BW_DIR, user_entry->d_name);
-            long long accumulated = 0; FILE *accf = fopen(usagefile, "r"); if (accf) { fscanf(accf, "%lld", &accumulated); fclose(accf); }
+            char usagefile[512];
+            snprintf(usagefile, sizeof(usagefile), "%s/%s.usage", BW_DIR, user_entry->d_name);
+            long long accumulated = 0;
+            FILE *accf = fopen(usagefile, "r");
+            if (accf) { fscanf(accf, "%lld", &accumulated); fclose(accf); }
             long long new_total = accumulated + delta_total;
-            accf = fopen(usagefile, "w"); if (accf) { fprintf(accf, "%lld\n", new_total); fclose(accf); }
+            accf = fopen(usagefile, "w");
+            if (accf) { fprintf(accf, "%lld\n", new_total); fclose(accf); }
             
             long long quota_bytes = (long long)(bandwidth_gb * GB_BYTES);
             if (new_total >= quota_bytes) {
-                char cmd[1024]; snprintf(cmd, sizeof(cmd), "passwd -S %s 2>/dev/null | grep -q 'L' || (usermod -L %s 2>/dev/null && killall -u %s -9 2>/dev/null && echo 'BLOCKED: BW exceeded' >> %s/%s)", user_entry->d_name, user_entry->d_name, user_entry->d_name, BANNED_DIR, user_entry->d_name);
+                char cmd[1024];
+                snprintf(cmd, sizeof(cmd), "passwd -S %s 2>/dev/null | grep -q 'L' || (usermod -L %s 2>/dev/null && killall -u %s -9 2>/dev/null && echo '%s - BLOCKED: Bandwidth quota exceeded %.1fGB' >> %s/%s)", user_entry->d_name, user_entry->d_name, user_entry->d_name, "BLOCKED", bandwidth_gb, BANNED_DIR, user_entry->d_name);
                 system(cmd);
             }
         }
-        closedir(user_dir); sleep(SCAN_INTERVAL);
+        closedir(user_dir);
+        sleep(SCAN_INTERVAL);
     }
     return 0;
 }
@@ -523,7 +656,7 @@ CEOF
         chmod +x /usr/local/bin/elite-x-bandwidth-c
         cat > /etc/systemd/system/elite-x-bandwidth.service <<EOF
 [Unit]
-Description=ELITE-X C Bandwidth Monitor
+Description=ELITE-X C Bandwidth Monitor (GB Limits)
 After=network.target
 [Service]
 Type=simple
@@ -531,10 +664,14 @@ ExecStart=/usr/local/bin/elite-x-bandwidth-c
 Restart=always
 RestartSec=10
 Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
 [Install]
 WantedBy=multi-user.target
 EOF
         echo -e "${GREEN}✅ C Bandwidth Monitor compiled${NC}"
+    else
+        echo -e "${RED}❌ C Bandwidth Monitor compilation failed${NC}"
     fi
 }
 
@@ -554,6 +691,7 @@ create_c_connection_monitor() {
 #include <signal.h>
 #include <pwd.h>
 #include <ctype.h>
+#include <sys/stat.h>
 
 #define USER_DB "/etc/elite-x/users"
 #define CONN_DB "/etc/elite-x/connections"
@@ -566,49 +704,84 @@ create_c_connection_monitor() {
 
 static volatile int running = 1;
 void signal_handler(int sig) { running = 0; }
+
 int is_numeric(const char *str) { for (; *str; str++) if (!isdigit(*str)) return 0; return 1; }
 
 int get_connection_count(const char *username) {
-    int count = 0; DIR *proc = opendir("/proc"); if (!proc) return 0;
+    int count = 0;
+    DIR *proc = opendir("/proc");
+    if (!proc) return 0;
     struct dirent *entry;
     while ((entry = readdir(proc))) {
         if (!is_numeric(entry->d_name)) continue;
         int pid = atoi(entry->d_name);
-        char comm_path[256]; snprintf(comm_path, sizeof(comm_path), "/proc/%d/comm", pid);
-        FILE *f = fopen(comm_path, "r"); if (!f) continue;
-        char comm[256] = {0}; fgets(comm, sizeof(comm), f); fclose(f); comm[strcspn(comm, "\n")] = 0;
+        char comm_path[256];
+        snprintf(comm_path, sizeof(comm_path), "/proc/%d/comm", pid);
+        FILE *f = fopen(comm_path, "r");
+        if (!f) continue;
+        char comm[256] = {0};
+        fgets(comm, sizeof(comm), f);
+        fclose(f);
+        comm[strcspn(comm, "\n")] = 0;
         if (strcmp(comm, "sshd") == 0) {
-            char status_path[256]; snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
-            FILE *sf = fopen(status_path, "r"); if (!sf) continue;
+            char status_path[256];
+            snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
+            FILE *sf = fopen(status_path, "r");
+            if (!sf) continue;
             char line[256], uid_str[32] = {0};
-            while (fgets(line, sizeof(line), sf)) { if (strncmp(line, "Uid:", 4) == 0) { sscanf(line, "%*s %s", uid_str); break; } }
-            fclose(sf); int uid = atoi(uid_str); struct passwd *pw = getpwuid(uid);
+            while (fgets(line, sizeof(line), sf)) {
+                if (strncmp(line, "Uid:", 4) == 0) { sscanf(line, "%*s %s", uid_str); break; }
+            }
+            fclose(sf);
+            int uid = atoi(uid_str);
+            struct passwd *pw = getpwuid(uid);
             if (pw && strcmp(pw->pw_name, username) == 0) {
-                char stat_path[256]; snprintf(stat_path, sizeof(stat_path), "/proc/%d/stat", pid);
+                char stat_path[256];
+                snprintf(stat_path, sizeof(stat_path), "/proc/%d/stat", pid);
                 FILE *stf = fopen(stat_path, "r");
-                if (stf) { int ppid; char stat_buf[1024]; fgets(stat_buf, sizeof(stat_buf), stf); sscanf(stat_buf, "%*d %*s %*c %d", &ppid); fclose(stf); if (ppid != 1) count++; }
+                if (stf) {
+                    int ppid;
+                    char stat_buf[1024];
+                    fgets(stat_buf, sizeof(stat_buf), stf);
+                    sscanf(stat_buf, "%*d %*s %*c %d", &ppid);
+                    fclose(stf);
+                    if (ppid != 1) count++;
+                }
             }
         }
     }
-    closedir(proc); return count;
+    closedir(proc);
+    return count;
+}
+
+void delete_expired_user(const char *username, const char *reason) {
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd), "cp %s/%s %s/%s_$(date +%%Y%%m%%d_%%H%%M%%S) 2>/dev/null; pkill -u %s 2>/dev/null; killall -u %s -9 2>/dev/null; userdel -r %s 2>/dev/null; rm -f %s/%s %s/%s %s/%s %s/%s %s/%s.usage; rm -f %s/%s__*.last 2>/dev/null; logger -t 'elite-x' 'Auto-deleted user: %s (%s)'", USER_DB, username, DELETED_DIR, username, username, username, username, USER_DB, username, "/etc/elite-x/data_usage", username, CONN_DB, username, BANNED_DIR, username, BW_DIR, username, PID_DIR, username, username, reason);
+    system(cmd);
 }
 
 int main() {
-    signal(SIGTERM, signal_handler); signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
     mkdir(CONN_DB, 0755); mkdir(BANNED_DIR, 0755); mkdir(DELETED_DIR, 0755); mkdir(BW_DIR, 0755); mkdir(PID_DIR, 0755);
     
     while (running) {
         time_t current_ts = time(NULL);
-        DIR *user_dir = opendir(USER_DB); if (!user_dir) { sleep(SCAN_INTERVAL); continue; }
+        DIR *user_dir = opendir(USER_DB);
+        if (!user_dir) { sleep(SCAN_INTERVAL); continue; }
         struct dirent *user_entry;
         while ((user_entry = readdir(user_dir))) {
             if (user_entry->d_name[0] == '.') continue;
             struct passwd *pw = getpwnam(user_entry->d_name);
             if (!pw) { char rm_cmd[512]; snprintf(rm_cmd, sizeof(rm_cmd), "rm -f %s/%s", USER_DB, user_entry->d_name); system(rm_cmd); continue; }
             
-            char user_file[512]; snprintf(user_file, sizeof(user_file), "%s/%s", USER_DB, user_entry->d_name);
-            FILE *uf = fopen(user_file, "r"); if (!uf) continue;
-            char expire_date[32] = {0}; int conn_limit = 1; char line[256];
+            char user_file[512];
+            snprintf(user_file, sizeof(user_file), "%s/%s", USER_DB, user_entry->d_name);
+            FILE *uf = fopen(user_file, "r");
+            if (!uf) continue;
+            char expire_date[32] = {0};
+            int conn_limit = 1;
+            char line[256];
             while (fgets(line, sizeof(line), uf)) {
                 if (strncmp(line, "Expire:", 7) == 0) sscanf(line + 8, "%s", expire_date);
                 else if (strncmp(line, "Conn_Limit:", 11) == 0) sscanf(line + 12, "%d", &conn_limit);
@@ -618,25 +791,34 @@ int main() {
             if (strlen(expire_date) > 0) {
                 struct tm tm = {0};
                 if (strptime(expire_date, "%Y-%m-%d", &tm)) {
-                    if (current_ts > mktime(&tm)) {
-                        char cmd[1024]; snprintf(cmd, sizeof(cmd), "cp %s/%s %s/%s_$(date +%%Y%%m%%d_%%H%%M%%S) 2>/dev/null; pkill -u %s 2>/dev/null; userdel -r %s 2>/dev/null; rm -f %s/%s %s/%s %s/%s.usage; rm -f %s/%s__*.last", USER_DB, user_entry->d_name, DELETED_DIR, user_entry->d_name, user_entry->d_name, user_entry->d_name, USER_DB, user_entry->d_name, CONN_DB, user_entry->d_name, BW_DIR, user_entry->d_name, PID_DIR, user_entry->d_name);
-                        system(cmd); continue;
+                    time_t expire_ts = mktime(&tm);
+                    if (current_ts > expire_ts) {
+                        char reason[256];
+                        snprintf(reason, sizeof(reason), "Account expired on %s", expire_date);
+                        delete_expired_user(user_entry->d_name, reason);
+                        continue;
                     }
                 }
             }
             
             int current_conn = get_connection_count(user_entry->d_name);
-            char conn_file[512]; snprintf(conn_file, sizeof(conn_file), "%s/%s", CONN_DB, user_entry->d_name);
-            FILE *cf = fopen(conn_file, "w"); if (cf) { fprintf(cf, "%d\n", current_conn); fclose(cf); }
+            char conn_file[512];
+            snprintf(conn_file, sizeof(conn_file), "%s/%s", CONN_DB, user_entry->d_name);
+            FILE *cf = fopen(conn_file, "w");
+            if (cf) { fprintf(cf, "%d\n", current_conn); fclose(cf); }
             
-            FILE *abf = fopen(AUTOBAN_FLAG, "r"); int autoban = 0; if (abf) { fscanf(abf, "%d", &autoban); fclose(abf); }
+            FILE *abf = fopen(AUTOBAN_FLAG, "r");
+            int autoban = 0;
+            if (abf) { fscanf(abf, "%d", &autoban); fclose(abf); }
             
             if (current_conn > conn_limit && autoban == 1) {
-                char lock_cmd[1024]; snprintf(lock_cmd, sizeof(lock_cmd), "usermod -L %s 2>/dev/null && pkill -u %s", user_entry->d_name, user_entry->d_name);
+                char lock_cmd[1024];
+                snprintf(lock_cmd, sizeof(lock_cmd), "passwd -S %s 2>/dev/null | grep -q 'L' || (usermod -L %s 2>/dev/null && pkill -u %s 2>/dev/null && echo '%s - BLOCKED: Exceeded connection limit %d/%d' >> %s/%s)", user_entry->d_name, user_entry->d_name, user_entry->d_name, "BLOCKED", current_conn, conn_limit, BANNED_DIR, user_entry->d_name);
                 system(lock_cmd);
             }
         }
-        closedir(user_dir); sleep(SCAN_INTERVAL);
+        closedir(user_dir);
+        sleep(SCAN_INTERVAL);
     }
     return 0;
 }
@@ -649,63 +831,405 @@ CEOF
         chmod +x /usr/local/bin/elite-x-connmon-c
         cat > /etc/systemd/system/elite-x-connmon.service <<EOF
 [Unit]
-Description=ELITE-X C Connection Monitor
+Description=ELITE-X C Connection Monitor (Auto-Ban + Auto-Delete)
 After=network.target ssh.service
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/elite-x-connmon-c
 Restart=always
 RestartSec=5
+CPUQuota=20%
+MemoryMax=50M
 [Install]
 WantedBy=multi-user.target
 EOF
         echo -e "${GREEN}✅ C Connection Monitor compiled${NC}"
+    else
+        echo -e "${RED}❌ C Connection Monitor compilation failed${NC}"
     fi
 }
 
 # ═══════════════════════════════════════════════════════════
-# SIMPLE C SERVICES
+# C-BASED NETWORK BOOSTER
 # ═══════════════════════════════════════════════════════════
-create_simple_c_services() {
-    for svc_name in netbooster dnscache ramcleaner irqopt datausage logcleaner; do
-        local bin="/usr/local/bin/elite-x-${svc_name}"
-        cat > "/tmp/${svc_name}.c" <<CEOF
+create_c_network_booster() {
+    echo -e "${YELLOW}📝 Compiling C Network Booster...${NC}"
+    
+    cat > /tmp/net_booster.c <<'CEOF'
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
-static volatile int r=1;
-void h(int s){r=0;}
-int main(){signal(SIGTERM,h);signal(SIGINT,h);while(r)sleep(60);return 0;}
+
+static volatile int running = 1;
+void signal_handler(int sig) { running = 0; }
+
+void apply_tcp_optimizations() {
+    system("sysctl -w net.core.default_qdisc=fq >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1");
+    system("sysctl -w net.core.rmem_max=134217728 >/dev/null 2>&1");
+    system("sysctl -w net.core.wmem_max=134217728 >/dev/null 2>&1");
+    system("sysctl -w net.core.rmem_default=262144 >/dev/null 2>&1");
+    system("sysctl -w net.core.wmem_default=262144 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_rmem='4096 87380 134217728' >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_wmem='4096 65536 134217728' >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_mtu_probing=1 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_sack=1 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_window_scaling=1 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_fastopen=3 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_slow_start_after_idle=0 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_notsent_lowat=16384 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_max_syn_backlog=8192 >/dev/null 2>&1");
+    system("sysctl -w net.core.somaxconn=8192 >/dev/null 2>&1");
+    system("sysctl -w net.core.netdev_max_backlog=5000 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_max_tw_buckets=2000000 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_tw_reuse=1 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_fin_timeout=10 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_keepalive_time=60 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_keepalive_intvl=10 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_keepalive_probes=6 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.udp_mem='65536 131072 262144' >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.udp_rmem_min=16384 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.udp_wmem_min=16384 >/dev/null 2>&1");
+    system("sysctl -w net.core.optmem_max=65536 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.conf.all.rp_filter=0 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.conf.default.rp_filter=0 >/dev/null 2>&1");
+    fprintf(stderr, "C Network Booster: TCP/UDP/VPN optimizations applied\n");
+}
+
+int main() {
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
+    apply_tcp_optimizations();
+    while (running) { sleep(3600); if (running) apply_tcp_optimizations(); }
+    return 0;
+}
 CEOF
-        gcc -O3 -o "$bin" "/tmp/${svc_name}.c" 2>/dev/null
-        rm -f "/tmp/${svc_name}.c"
-        [ -f "$bin" ] && { chmod +x "$bin"; cat > "/etc/systemd/system/elite-x-${svc_name}.service" <<EOF
+
+    gcc -O3 -o /usr/local/bin/elite-x-netbooster /tmp/net_booster.c 2>/dev/null
+    rm -f /tmp/net_booster.c
+    
+    if [ -f /usr/local/bin/elite-x-netbooster ]; then
+        chmod +x /usr/local/bin/elite-x-netbooster
+        cat > /etc/systemd/system/elite-x-netbooster.service <<EOF
 [Unit]
-Description=ELITE-X C ${svc_name}
+Description=ELITE-X C Network Booster (TCP Optimizer)
 After=network.target
 [Service]
 Type=simple
-ExecStart=${bin}
+ExecStart=/usr/local/bin/elite-x-netbooster
 Restart=always
+RestartSec=30
 [Install]
 WantedBy=multi-user.target
 EOF
-        }
-    done
+        echo -e "${GREEN}✅ C Network Booster compiled${NC}"
+    fi
 }
 
 # ═══════════════════════════════════════════════════════════
-# USER MANAGEMENT SCRIPT (WITH PHONE FIELD)
+# C-BASED DNS CACHE OPTIMIZER
+# ═══════════════════════════════════════════════════════════
+create_c_dns_cache() {
+    echo -e "${YELLOW}📝 Compiling C DNS Cache Optimizer...${NC}"
+    
+    cat > /tmp/dns_cache.c <<'CEOF'
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <signal.h>
+static volatile int running = 1;
+void signal_handler(int sig) { running = 0; }
+void flush_dns_cache() {
+    system("systemctl restart systemd-resolved 2>/dev/null || true");
+    system("resolvectl flush-caches 2>/dev/null || true");
+    system("killall -HUP dnsmasq 2>/dev/null || true");
+    fprintf(stderr, "C DNS Cache: Flushed\n");
+}
+void optimize_resolv_conf() {
+    FILE *f = fopen("/etc/resolv.conf", "w");
+    if (f) { fprintf(f, "nameserver 8.8.8.8\nnameserver 8.8.4.4\nnameserver 1.1.1.1\noptions timeout:1 rotate\noptions attempts:3\n"); fclose(f); fprintf(stderr, "C DNS Cache: resolv.conf optimized\n"); }
+}
+int main() {
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
+    optimize_resolv_conf();
+    while (running) { flush_dns_cache(); int i; for (i = 0; i < 1800 && running; i++) sleep(1); }
+    return 0;
+}
+CEOF
+
+    gcc -O3 -o /usr/local/bin/elite-x-dnscache /tmp/dns_cache.c 2>/dev/null
+    rm -f /tmp/dns_cache.c
+    
+    if [ -f /usr/local/bin/elite-x-dnscache ]; then
+        chmod +x /usr/local/bin/elite-x-dnscache
+        cat > /etc/systemd/system/elite-x-dnscache.service <<EOF
+[Unit]
+Description=ELITE-X C DNS Cache Optimizer
+After=network.target
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/elite-x-dnscache
+Restart=always
+RestartSec=30
+[Install]
+WantedBy=multi-user.target
+EOF
+        echo -e "${GREEN}✅ C DNS Cache Optimizer compiled${NC}"
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════
+# C-BASED RAM CACHE CLEANER
+# ═══════════════════════════════════════════════════════════
+create_c_ram_cleaner() {
+    echo -e "${YELLOW}📝 Compiling C RAM Cache Cleaner...${NC}"
+    
+    cat > /tmp/ram_cleaner.c <<'CEOF'
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <signal.h>
+static volatile int running = 1;
+void signal_handler(int sig) { running = 0; }
+void clean_memory() {
+    system("sync && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null");
+    system("swapoff -a 2>/dev/null && swapon -a 2>/dev/null");
+    system("echo 1 > /proc/sys/vm/compact_memory 2>/dev/null");
+    system("sysctl -w vm.swappiness=10 >/dev/null 2>&1");
+    system("sysctl -w vm.vfs_cache_pressure=50 >/dev/null 2>&1");
+    system("sysctl -w vm.dirty_ratio=10 >/dev/null 2>&1");
+    system("sysctl -w vm.dirty_background_ratio=5 >/dev/null 2>&1");
+    fprintf(stderr, "C RAM Cleaner: Memory cleaned\n");
+}
+int main() {
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
+    while (running) { clean_memory(); int i; for (i = 0; i < 900 && running; i++) sleep(1); }
+    return 0;
+}
+CEOF
+
+    gcc -O3 -o /usr/local/bin/elite-x-ramcleaner /tmp/ram_cleaner.c 2>/dev/null
+    rm -f /tmp/ram_cleaner.c
+    
+    if [ -f /usr/local/bin/elite-x-ramcleaner ]; then
+        chmod +x /usr/local/bin/elite-x-ramcleaner
+        cat > /etc/systemd/system/elite-x-ramcleaner.service <<EOF
+[Unit]
+Description=ELITE-X C RAM Cache Cleaner
+After=network.target
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/elite-x-ramcleaner
+Restart=always
+RestartSec=30
+CPUQuota=10%
+MemoryMax=30M
+[Install]
+WantedBy=multi-user.target
+EOF
+        echo -e "${GREEN}✅ C RAM Cleaner compiled${NC}"
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════
+# C-BASED IRQ AFFINITY OPTIMIZER
+# ═══════════════════════════════════════════════════════════
+create_c_irq_optimizer() {
+    echo -e "${YELLOW}📝 Compiling C IRQ Affinity Optimizer...${NC}"
+    
+    cat > /tmp/irq_optimizer.c <<'CEOF'
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <signal.h>
+static volatile int running = 1;
+void signal_handler(int sig) { running = 0; }
+void optimize_irq() {
+    DIR *d = opendir("/proc/irq");
+    if (!d) return;
+    struct dirent *entry;
+    while ((entry = readdir(d))) {
+        if (entry->d_name[0] == '.') continue;
+        char path[512];
+        snprintf(path, sizeof(path), "/proc/irq/%s/smp_affinity", entry->d_name);
+        FILE *f = fopen(path, "w");
+        if (f) { fprintf(f, "ffffffff\n"); fclose(f); }
+    }
+    closedir(d);
+    system("for i in /sys/class/net/eth*/queues/rx-*/rps_cpus; do echo ffffffff > $i 2>/dev/null; done");
+    system("for i in /sys/class/net/ens*/queues/rx-*/rps_cpus; do echo ffffffff > $i 2>/dev/null; done");
+    fprintf(stderr, "C IRQ Optimizer: IRQs distributed\n");
+}
+int main() {
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
+    while (running) { optimize_irq(); sleep(600); }
+    return 0;
+}
+CEOF
+
+    gcc -O3 -o /usr/local/bin/elite-x-irqopt /tmp/irq_optimizer.c 2>/dev/null
+    rm -f /tmp/irq_optimizer.c
+    
+    if [ -f /usr/local/bin/elite-x-irqopt ]; then
+        chmod +x /usr/local/bin/elite-x-irqopt
+        cat > /etc/systemd/system/elite-x-irqopt.service <<EOF
+[Unit]
+Description=ELITE-X C IRQ Affinity Optimizer
+After=network.target
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/elite-x-irqopt
+Restart=always
+RestartSec=30
+[Install]
+WantedBy=multi-user.target
+EOF
+        echo -e "${GREEN}✅ C IRQ Optimizer compiled${NC}"
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════
+# C-BASED DATA USAGE MONITOR
+# ═══════════════════════════════════════════════════════════
+create_c_data_usage() {
+    echo -e "${YELLOW}📝 Compiling C Data Usage Monitor...${NC}"
+    
+    cat > /tmp/data_usage.c <<'CEOF'
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <time.h>
+#include <signal.h>
+static volatile int running = 1;
+void signal_handler(int sig) { running = 0; }
+int main() {
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
+    while (running) {
+        DIR *user_dir = opendir("/etc/elite-x/users");
+        if (!user_dir) { sleep(30); continue; }
+        char current_month[8];
+        time_t now = time(NULL);
+        strftime(current_month, sizeof(current_month), "%Y-%m", localtime(&now));
+        struct dirent *entry;
+        while ((entry = readdir(user_dir))) {
+            if (entry->d_name[0] == '.') continue;
+            char bw_file[512];
+            snprintf(bw_file, sizeof(bw_file), "/etc/elite-x/bandwidth/%s.usage", entry->d_name);
+            long long total_bytes = 0;
+            FILE *f = fopen(bw_file, "r");
+            if (f) { fscanf(f, "%lld", &total_bytes); fclose(f); }
+            double total_gb = total_bytes / 1073741824.0;
+            char usage_file[512];
+            snprintf(usage_file, sizeof(usage_file), "/etc/elite-x/data_usage/%s", entry->d_name);
+            f = fopen(usage_file, "w");
+            if (f) { time_t t = time(NULL); char *time_str = ctime(&t); time_str[strcspn(time_str, "\n")] = 0; fprintf(f, "month: %s\ntotal_gb: %.2f\nlast_updated: %s\n", current_month, total_gb, time_str); fclose(f); }
+        }
+        closedir(user_dir);
+        sleep(30);
+    }
+    return 0;
+}
+CEOF
+
+    gcc -O3 -o /usr/local/bin/elite-x-datausage-c /tmp/data_usage.c 2>/dev/null
+    rm -f /tmp/data_usage.c
+    
+    if [ -f /usr/local/bin/elite-x-datausage-c ]; then
+        chmod +x /usr/local/bin/elite-x-datausage-c
+        cat > /etc/systemd/system/elite-x-datausage.service <<EOF
+[Unit]
+Description=ELITE-X C Monthly Data Usage Monitor
+After=network.target
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/elite-x-datausage-c
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+EOF
+        echo -e "${GREEN}✅ C Data Usage Monitor compiled${NC}"
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════
+# C-BASED LOG CLEANER
+# ═══════════════════════════════════════════════════════════
+create_c_log_cleaner() {
+    echo -e "${YELLOW}📝 Compiling C Log Cleaner...${NC}"
+    
+    cat > /tmp/log_cleaner.c <<'CEOF'
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <signal.h>
+static volatile int running = 1;
+void signal_handler(int sig) { running = 0; }
+void clean_logs() {
+    system("find /var/log -type f -name '*.log' -size +50M -exec truncate -s 0 {} \\; 2>/dev/null");
+    system("journalctl --vacuum-size=50M 2>/dev/null");
+    system("truncate -s 0 /var/log/syslog 2>/dev/null");
+    system("truncate -s 0 /var/log/messages 2>/dev/null");
+    system("truncate -s 0 /var/log/kern.log 2>/dev/null");
+    system("truncate -s 0 /var/log/auth.log 2>/dev/null");
+    system("find /var/log -name '*.gz' -mtime +3 -delete 2>/dev/null");
+    system("find /var/log -name '*.1' -delete 2>/dev/null");
+    system("find /var/log -name '*.old' -delete 2>/dev/null");
+    fprintf(stderr, "C Log Cleaner: Logs cleaned\n");
+}
+int main() {
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
+    while (running) { clean_logs(); int i; for (i = 0; i < 3600 && running; i++) sleep(1); }
+    return 0;
+}
+CEOF
+
+    gcc -O3 -o /usr/local/bin/elite-x-logcleaner /tmp/log_cleaner.c 2>/dev/null
+    rm -f /tmp/log_cleaner.c
+    
+    if [ -f /usr/local/bin/elite-x-logcleaner ]; then
+        chmod +x /usr/local/bin/elite-x-logcleaner
+        cat > /etc/systemd/system/elite-x-logcleaner.service <<EOF
+[Unit]
+Description=ELITE-X C Log Cleaner
+After=network.target
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/elite-x-logcleaner
+Restart=always
+RestartSec=30
+CPUQuota=10%
+MemoryMax=20M
+[Install]
+WantedBy=multi-user.target
+EOF
+        echo -e "${GREEN}✅ C Log Cleaner compiled${NC}"
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════
+# USER MANAGEMENT SCRIPT (IMPROVED)
 # ═══════════════════════════════════════════════════════════
 create_user_script() {
     cat > /usr/local/bin/elite-x-user <<'USEREOF'
 #!/bin/bash
 
 RED='\033[0;31m';GREEN='\033[0;32m';YELLOW='\033[1;33m';CYAN='\033[0;36m'
-WHITE='\033[1;37m';BOLD='\033[1m';PURPLE='\033[0;35m';GRAY='\033[0;90m';NC='\033[0m'
+WHITE='\033[1;37m';BOLD='\033[1m';ORANGE='\033[0;33m'
+LIGHT_RED='\033[1;31m';LIGHT_GREEN='\033[1;32m';PURPLE='\033[0;35m';GRAY='\033[0;90m';NC='\033[0m'
 
-UD="/etc/elite-x/users"; USAGE_DB="/etc/elite-x/data_usage"; DD="/etc/elite-x/deleted"; BD="/etc/elite-x/banned"; CONN_DB="/etc/elite-x/connections"; BW_DIR="/etc/elite-x/bandwidth"; PID_DIR="$BW_DIR/pidtrack"
+UD="/etc/elite-x/users"; USAGE_DB="/etc/elite-x/data_usage"; DD="/etc/elite-x/deleted"; BD="/etc/elite-x/banned"; CONN_DB="/etc/elite-x/connections"; BW_DIR="/etc/elite-x/bandwidth"; PID_DIR="$BW_DIR/pidtrack"; AUTOBAN_FLAG="/etc/elite-x/autoban_enabled"
 mkdir -p "$UD" "$USAGE_DB" "$DD" "$BD" "$CONN_DB" "$BW_DIR" "$PID_DIR"
 
 get_connection_count() {
@@ -726,29 +1250,22 @@ get_bandwidth_usage() {
 add_user() {
     clear
     echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${YELLOW}        CREATE SSH + DNS USER (FALCON ULTRA C)               ${CYAN}║${NC}"
+    echo -e "${CYAN}║${YELLOW}              CREATE SSH + DNS USER (FALCON ULTRA C)           ${CYAN}║${NC}"
     echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
     
     read -p "$(echo -e $GREEN"Username: "$NC)" username
-    if id "$username" &>/dev/null; then echo -e "${RED}❌ User already exists!${NC}"; return; fi
+    if id "$username" &>/dev/null; then echo -e "${RED}User already exists!${NC}"; return; fi
     
     read -p "$(echo -e $GREEN"Password [auto-generate]: "$NC)" password
     [ -z "$password" ] && password=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 8) && echo -e "${GREEN}🔑 Generated: ${YELLOW}$password${NC}"
     
-    # PHONE NUMBER FIELD
-    echo -e "${CYAN}────────────────────────────────────────${NC}"
-    echo -e "${YELLOW}📱 Phone Number (WhatsApp) - Optional${NC}"
-    read -p "$(echo -e $GREEN"Phone [e.g. 255712345678, skip]: "$NC)" customer_phone
-    customer_phone=${customer_phone:-0}
-    customer_phone=$(echo "$customer_phone" | sed 's/[^0-9]//g')
-    
     read -p "$(echo -e $GREEN"Expire (days) [30]: "$NC)" days; days=${days:-30}
-    [[ ! "$days" =~ ^[0-9]+$ ]] && { echo -e "${RED}❌ Invalid days!${NC}"; return; }
+    [[ ! "$days" =~ ^[0-9]+$ ]] && { echo -e "${RED}Invalid days!${NC}"; return; }
     
     read -p "$(echo -e $GREEN"Connection limit [1]: "$NC)" conn_limit; conn_limit=${conn_limit:-1}
     [[ ! "$conn_limit" =~ ^[0-9]+$ ]] && conn_limit=1
     
-    read -p "$(echo -e $GREEN"Bandwidth limit GB (0=unlimited) [0]: "$NC)" bandwidth_gb; bandwidth_gb=${bandwidth_gb:-0}
+    read -p "$(echo -e $GREEN"Bandwidth limit in GB (0 = unlimited) [0]: "$NC)" bandwidth_gb; bandwidth_gb=${bandwidth_gb:-0}
     [[ ! "$bandwidth_gb" =~ ^[0-9]+\.?[0-9]*$ ]] && bandwidth_gb=0
     
     useradd -m -s /bin/false "$username"
@@ -762,11 +1279,12 @@ Password: $password
 Expire: $expire_date
 Conn_Limit: $conn_limit
 Bandwidth_GB: $bandwidth_gb
-Phone: $customer_phone
 Created: $(date +"%Y-%m-%d %H:%M:%S")
 INFO
     
     echo "0" > "$BW_DIR/${username}.usage"
+    
+    # Refresh banner for this user
     /usr/local/bin/elite-x-banner-updater "$username" 2>/dev/null
     
     local bw_disp="Unlimited"; [ "$bandwidth_gb" != "0" ] && bw_disp="${bandwidth_gb} GB"
@@ -776,11 +1294,10 @@ INFO
     
     clear
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║${YELLOW}                  ✅ USER CREATED SUCCESSFULLY                    ${GREEN}║${NC}"
+    echo -e "${GREEN}║${YELLOW}                  USER CREATED SUCCESSFULLY                    ${GREEN}║${NC}"
     echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${GREEN}║${WHITE}  Username   :${CYAN} $username${NC}"
     echo -e "${GREEN}║${WHITE}  Password   :${CYAN} $password${NC}"
-    echo -e "${GREEN}║${WHITE}  Phone      :${CYAN} ${customer_phone:-N/A}${NC}"
     echo -e "${GREEN}║${WHITE}  Server     :${CYAN} $SERVER${NC}"
     echo -e "${GREEN}║${WHITE}  IP         :${CYAN} $IP${NC}"
     echo -e "${GREEN}║${WHITE}  Public Key :${CYAN} $PUBKEY${NC}"
@@ -796,18 +1313,18 @@ INFO
 
 list_users() {
     clear
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${YELLOW}${BOLD}                           ACTIVE USERS                              ${CYAN}║${NC}"
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${YELLOW}${BOLD}                    ACTIVE USERS                       ${CYAN}║${NC}"
+    echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════════════════╣${NC}"
     
     if [ -z "$(ls -A "$UD" 2>/dev/null)" ]; then
-        echo -e "${CYAN}║${RED}                              No users found                                    ${CYAN}║${NC}"
-        echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo -e "${CYAN}║${RED}                                    No users found                                          ${CYAN}║${NC}"
+        echo -e "${CYAN}╚═════════════════════════════════════════════════════════════════════════╝${NC}"
         return
     fi
     
-    printf "${CYAN}║${WHITE} %-14s %-12s %-8s %-12s %-14s %-14s${CYAN} ║${NC}\n" "USERNAME" "EXPIRE" "LOGIN" "PHONE" "BANDWIDTH" "STATUS"
-    echo -e "${CYAN}╟──────────────────────────────────────────────────────────────────────────────────╢${NC}"
+    printf "${CYAN}║${WHITE} %-14s %-12s %-8s %-14s %-18s${CYAN} ║${NC}\n" "USERNAME" "EXPIRE" "LOGIN" "BANDWIDTH" "STATUS"
+    echo -e "${CYAN}╟────────────────────────────────────────────────────────────────────────────╢${NC}"
     
     for user in "$UD"/*; do
         [ ! -f "$user" ] && continue
@@ -815,8 +1332,6 @@ list_users() {
         ex=$(grep "Expire:" "$user" | cut -d' ' -f2)
         limit=$(grep "Conn_Limit:" "$user" | awk '{print $2}'); limit=${limit:-1}
         bw_limit=$(grep "Bandwidth_GB:" "$user" | awk '{print $2}'); bw_limit=${bw_limit:-0}
-        phone=$(grep "Phone:" "$user" | awk '{print $2}'); phone=${phone:-N/A}
-        [ "$phone" = "0" ] && phone="N/A"
         
         total_gb=$(get_bandwidth_usage "$u")
         current_conn=$(get_connection_count "$u")
@@ -844,44 +1359,91 @@ list_users() {
         [ $days_left -le 0 ] && exp_display="${RED}${ex}${NC}" || exp_display="${GREEN}${ex}${NC}"
         [ $days_left -le 7 ] && [ $days_left -gt 0 ] && exp_display="${YELLOW}${ex}${NC}"
         
-        printf "${CYAN}║${WHITE} %-14s %-12b %-8b %-12s %-14b %-14b${CYAN} ║${NC}\n" "$u" "$exp_display" "$login_display" "$phone" "$bw_display" "$status"
+        printf "${CYAN}║${WHITE} %-14s %-12b %-8b %-14b %-18b${CYAN} ║${NC}\n" "$u" "$exp_display" "$login_display" "$bw_display" "$status"
     done
     
     TOTAL_USERS=$(ls "$UD" 2>/dev/null | wc -l)
     TOTAL_ONLINE=$(who | wc -l)
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${YELLOW}  Users: ${GREEN}${TOTAL_USERS}${YELLOW} | Online: ${GREEN}${TOTAL_ONLINE}${NC}                                                          ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╠════════════════════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${YELLOW}  Users: ${GREEN}${TOTAL_USERS}${YELLOW} | Online: ${GREEN}${TOTAL_ONLINE}${NC}                                                      ${CYAN}║${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════════════════════╝${NC}"
 }
+
+renew_user() {
+    read -p "$(echo -e $GREEN"Username: "$NC)" username
+    [ ! -f "$UD/$username" ] && { echo -e "${RED}User not found!${NC}"; return; }
+    read -p "$(echo -e $GREEN"Additional days: "$NC)" days
+    current_expire=$(grep "Expire:" "$UD/$username" | cut -d' ' -f2)
+    new_expire=$(date -d "$current_expire +$days days" +"%Y-%m-%d")
+    sed -i "s/Expire: .*/Expire: $new_expire/" "$UD/$username"
+    chage -E "$new_expire" "$username" 2>/dev/null
+    usermod -U "$username" 2>/dev/null
+    /usr/local/bin/elite-x-banner-updater "$username" 2>/dev/null
+    echo -e "${GREEN}✅ User renewed until $new_expire${NC}"
+}
+
+set_bandwidth_limit() {
+    read -p "$(echo -e $GREEN"Username: "$NC)" username
+    [ ! -f "$UD/$username" ] && { echo -e "${RED}User not found!${NC}"; return; }
+    current_bw=$(grep "Bandwidth_GB:" "$UD/$username" 2>/dev/null | awk '{print $2}')
+    echo -e "${CYAN}Current: ${YELLOW}${current_bw:-Not set} GB${NC}"
+    read -p "$(echo -e $GREEN"New limit (0=unlimited): "$NC)" new_bw
+    [[ ! "$new_bw" =~ ^[0-9]+\.?[0-9]*$ ]] && { echo -e "${RED}Invalid!${NC}"; return; }
+    grep -q "Bandwidth_GB:" "$UD/$username" && sed -i "s/Bandwidth_GB: .*/Bandwidth_GB: $new_bw/" "$UD/$username" || echo "Bandwidth_GB: $new_bw" >> "$UD/$username"
+    [ "$new_bw" = "0" ] && usermod -U "$username" 2>/dev/null
+    /usr/local/bin/elite-x-banner-updater "$username" 2>/dev/null
+    echo -e "${GREEN}✅ Bandwidth limit updated${NC}"
+}
+
+reset_bandwidth() {
+    read -p "$(echo -e $GREEN"Username: "$NC)" username
+    [ ! -f "$UD/$username" ] && { echo -e "${RED}User not found!${NC}"; return; }
+    echo "0" > "$BW_DIR/${username}.usage"
+    rm -rf "$PID_DIR/${username}" 2>/dev/null
+    rm -f "$PID_DIR/${username}__"*.last 2>/dev/null
+    usermod -U "$username" 2>/dev/null
+    /usr/local/bin/elite-x-banner-updater "$username" 2>/dev/null
+    echo -e "${GREEN}✅ Bandwidth reset to 0${NC}"
+}
+
+lock_user() { read -p "$(echo -e $GREEN"Username: "$NC)" u; [ ! -f "$UD/$u" ] && { echo -e "${RED}User not found!${NC}"; return; }; usermod -L "$u" 2>/dev/null; pkill -u "$u" 2>/dev/null || true; echo "$(date) - MANUALLY LOCKED" >> "$BD/$u"; echo -e "${GREEN}✅ User locked${NC}"; }
+unlock_user() { read -p "$(echo -e $GREEN"Username: "$NC)" u; [ ! -f "$UD/$u" ] && { echo -e "${RED}User not found!${NC}"; return; }; usermod -U "$u" 2>/dev/null; echo "$(date) - MANUALLY UNLOCKED" >> "$BD/$u"; /usr/local/bin/elite-x-banner-updater "$u" 2>/dev/null; echo -e "${GREEN}✅ User unlocked${NC}"; }
+delete_user() { read -p "$(echo -e $GREEN"Username: "$NC)" u; [ ! -f "$UD/$u" ] && { echo -e "${RED}User not found!${NC}"; return; }; cp "$UD/$u" "$DD/${u}_$(date +%Y%m%d_%H%M%S)" 2>/dev/null; pkill -u "$u" 2>/dev/null || true; killall -u "$u" -9 2>/dev/null || true; userdel -r "$u" 2>/dev/null; rm -f "$UD/$u" "$USAGE_DB/$u" "$CONN_DB/$u" "$BD/$u" "$BW_DIR/${u}.usage"; rm -rf "$PID_DIR/${u}" 2>/dev/null; echo -e "${GREEN}✅ User deleted${NC}"; }
 
 details_user() {
     read -p "$(echo -e $GREEN"Username: "$NC)" username
-    [ ! -f "$UD/$username" ] && { echo -e "${RED}Not found${NC}"; return; }
+    [ ! -f "$UD/$username" ] && { echo -e "${RED}User not found!${NC}"; return; }
+    
     clear
     echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${YELLOW}              USER DETAILS                                     ${CYAN}║${NC}"
+    echo -e "${CYAN}║${YELLOW}              USER DETAILS                         ${CYAN}║${NC}"
     echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════╣${NC}"
     cat "$UD/$username" | while read line; do echo -e "${CYAN}║${WHITE}  $line${NC}"; done
+    
     total_gb=$(get_bandwidth_usage "$username")
+    bw_limit=$(grep "Bandwidth_GB:" "$UD/$username" 2>/dev/null | awk '{print $2}')
+    bw_limit=${bw_limit:-0}
     current_conn=$(get_connection_count "$username")
+    
     echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${WHITE}  Active: ${GREEN}${current_conn}${WHITE} | BW Used: ${GREEN}${total_gb} GB${NC}"
+    echo -e "${CYAN}║${WHITE}  Active Sessions: ${GREEN}${current_conn}${NC}"
+    echo -e "${CYAN}║${WHITE}  Bandwidth Used: ${GREEN}${total_gb} GB${NC} / ${YELLOW}${bw_limit:-Unlimited} GB${NC}"
     echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
 }
 
-case ${1:-} in
+case $1 in
     add) add_user ;;
     list) list_users ;;
     details) details_user ;;
-    renew) read -p "User: " u; read -p "Days: " d; ce=$(grep "Expire:" "$UD/$u" | cut -d' ' -f2); ne=$(date -d "$ce +$d days" +"%Y-%m-%d"); sed -i "s/Expire: .*/Expire: $ne/" "$UD/$u"; chage -E "$ne" "$u" 2>/dev/null; usermod -U "$u" 2>/dev/null; /usr/local/bin/elite-x-banner-updater "$u" 2>/dev/null; echo "✅ Renewed" ;;
-    setlimit) read -p "User: " u; read -p "Limit: " l; sed -i "s/Conn_Limit: .*/Conn_Limit: $l/" "$UD/$u" 2>/dev/null; echo "✅ Done" ;;
-    setbw) read -p "User: " u; read -p "GB: " b; sed -i "s/Bandwidth_GB: .*/Bandwidth_GB: $b/" "$UD/$u" 2>/dev/null; echo "✅ Done" ;;
-    resetdata) read -p "User: " u; echo "0" > "$BW_DIR/${u}.usage"; echo "✅ Reset" ;;
-    lock) read -p "User: " u; usermod -L "$u" 2>/dev/null; echo "✅ Locked" ;;
-    unlock) read -p "User: " u; usermod -U "$u" 2>/dev/null; echo "✅ Unlocked" ;;
-    del) read -p "User: " u; pkill -u "$u" 2>/dev/null; userdel -r "$u" 2>/dev/null; rm -f "$UD/$u" "$BW_DIR/${u}.usage"; echo "✅ Deleted" ;;
+    renew) renew_user ;;
+    setlimit) read -p "Username: " u; read -p "New limit: " l; [ -f "$UD/$u" ] && { sed -i "s/Conn_Limit: .*/Conn_Limit: $l/" "$UD/$u"; /usr/local/bin/elite-x-banner-updater "$u" 2>/dev/null; echo -e "${GREEN}✅ Updated${NC}"; } || echo -e "${RED}Not found${NC}" ;;
+    setbw) set_bandwidth_limit ;;
+    resetdata) reset_bandwidth ;;
     deleted) ls "$DD/" 2>/dev/null | head -20 || echo "No deleted users" ;;
-    *) echo "Usage: {add|list|details|renew|setlimit|setbw|resetdata|lock|unlock|del|deleted}" ;;
+    lock) lock_user ;;
+    unlock) unlock_user ;;
+    del) delete_user ;;
+    *) echo "Usage: elite-x-user {add|list|details|renew|setlimit|setbw|resetdata|deleted|lock|unlock|del}" ;;
 esac
 USEREOF
     chmod +x /usr/local/bin/elite-x-user
@@ -896,9 +1458,9 @@ create_main_menu() {
 
 RED='\033[0;31m';GREEN='\033[0;32m';YELLOW='\033[1;33m';CYAN='\033[0;36m'
 PURPLE='\033[0;35m';WHITE='\033[1;37m';BOLD='\033[1m';NC='\033[0m'
-GRAY='\033[0;90m';LIGHT_GREEN='\033[1;32m';LIGHT_RED='\033[1;31m'
+ORANGE='\033[0;33m';LIGHT_RED='\033[1;31m';LIGHT_GREEN='\033[1;32m';GRAY='\033[0;90m'
 
-UD="/etc/elite-x/users"; BW_DIR="/etc/elite-x/bandwidth"
+UD="/etc/elite-x/users"; BW_DIR="/etc/elite-x/bandwidth"; AUTOBAN_FLAG="/etc/elite-x/autoban_enabled"
 
 show_dashboard() {
     clear
@@ -908,22 +1470,193 @@ show_dashboard() {
     MTU=$(cat /etc/elite-x/mtu 2>/dev/null || echo "1800")
     RAM=$(free -h | awk '/^Mem:/{print $3"/"$2}')
     
-    SMSG=$( [ -f /etc/elite-x/server_msg/banner ] && echo "${GREEN}✅ Active${NC}" || echo "${RED}❌ Inactive${NC}" )
+    # Check Server Message system
+    if [ -f /etc/elite-x/server_msg/banner ] && [ -x /usr/local/bin/elite-x-banner-updater ]; then
+        SMSG="${GREEN}✅ Active${NC}"
+    else
+        SMSG="${RED}❌ Inactive${NC}"
+    fi
+    
+    DNS=$(systemctl is-active dnstt-elite-x 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
+    PRX=$(systemctl is-active dnstt-elite-x-proxy 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
+    BW=$(systemctl is-active elite-x-bandwidth 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
+    NBOOST=$(systemctl is-active elite-x-netbooster 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
+    DNSC=$(systemctl is-active elite-x-dnscache 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
+    RAMC=$(systemctl is-active elite-x-ramcleaner 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
+    IRQ=$(systemctl is-active elite-x-irqopt 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
     
     TOTAL_USERS=$(ls -1 "$UD" 2>/dev/null | wc -l)
     ONLINE=$(who | wc -l)
     
+    TOTAL_BW=0
+    if [ -d "$BW_DIR" ]; then
+        for f in "$BW_DIR"/*.usage; do
+            [ -f "$f" ] || continue
+            b=$(cat "$f" 2>/dev/null || echo 0)
+            gb=$(echo "scale=2; $b / 1073741824" | bc 2>/dev/null || echo "0")
+            TOTAL_BW=$(echo "$TOTAL_BW + $gb" | bc 2>/dev/null || echo "$TOTAL_BW")
+        done
+    fi
+    
     echo -e "${PURPLE}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${YELLOW}${BOLD}      ELITE-X v3.7 - FALCON ULTRA C + SERVER MSG  ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${YELLOW}${BOLD}      ELITE-X v3.6 - FALCON + SERVER MSG     ${PURPLE}║${NC}"
     echo -e "${PURPLE}╠════════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${PURPLE}║${WHITE}  NS        :${GREEN} $SUB${NC}"
     echo -e "${PURPLE}║${WHITE}  IP        :${GREEN} $IP${NC}"
     echo -e "${PURPLE}║${WHITE}  Location  :${GREEN} $LOCATION (MTU: $MTU)${NC}"
     echo -e "${PURPLE}║${WHITE}  RAM       :${GREEN} $RAM${NC}"
+    echo -e "${PURPLE}║${WHITE}  Core      : DNS:$DNS PRX:$PRX BW:$BW${NC}"
+    echo -e "${PURPLE}║${WHITE}  Boosters  : NET:$NBOOST DNS:$DNSC RAM:$RAMC IRQ:$IRQ${NC}"
     echo -e "${PURPLE}║${WHITE}  Server Msg: $SMSG${NC}"
     echo -e "${PURPLE}║${WHITE}  Users     :${GREEN} $TOTAL_USERS total, $ONLINE online${NC}"
+    echo -e "${PURPLE}║${WHITE}  Total BW  :${YELLOW} ${TOTAL_BW} GB${NC}"
     echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
+}
+
+settings_menu() {
+    while true; do
+        clear
+        autoban=$(cat "$AUTOBAN_FLAG" 2>/dev/null || echo "0")
+        [ "$autoban" = "1" ] && ABSTATUS="${RED}ENABLED${NC}" || ABSTATUS="${GREEN}DISABLED${NC}"
+        
+        echo -e "${PURPLE}╔════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${PURPLE}║${YELLOW}${BOLD}                 SETTINGS MENU                     ${PURPLE}║${NC}"
+        echo -e "${PURPLE}╠════════════════════════════════════════════════════════════════╣${NC}"
+        echo -e "${PURPLE}║${WHITE}  [1] Change MTU  [2] Speed Optimize  [3] Clean Cache${NC}"
+        echo -e "${PURPLE}║${WHITE}  [4] Edit Banner [5] Reset Banner     [6] Traffic Stats${NC}"
+        echo -e "${PURPLE}║${WHITE}  [7] Reset All BW [8] Toggle Auto-Ban ($ABSTATUS)${WHITE}${NC}"
+        echo -e "${PURPLE}║${WHITE}  [9] Restart All  [10] Reboot VPS      [11] Uninstall${NC}"
+        echo -e "${PURPLE}║${WHITE}  [12] Recompile C   [13] Fix VPN/SSH    [14] Refresh Msg${NC}"
+        echo -e "${PURPLE}║${WHITE}  [15] Test Svr Msg  [0] Back${NC}"
+        echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════╝${NC}"
+        read -p "$(echo -e $GREEN"Option: "$NC)" ch
+        
+        case $ch in
+            1)
+                read -p "New MTU (1000-5000): " mtu
+                [[ "$mtu" =~ ^[0-9]+$ ]] && [ $mtu -ge 1000 ] && [ $mtu -le 5000 ] && {
+                    echo "$mtu" > /etc/elite-x/mtu
+                    sed -i "s/-mtu [0-9]*/-mtu $mtu/" /etc/systemd/system/dnstt-elite-x.service
+                    systemctl daemon-reload
+                    systemctl restart dnstt-elite-x dnstt-elite-x-proxy
+                    echo -e "${GREEN}✅ MTU updated${NC}"
+                } || echo -e "${RED}Invalid${NC}"
+                read -p "Press Enter..." ;;
+            2) 
+                sysctl -w net.core.default_qdisc=fq >/dev/null 2>&1
+                sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1
+                sysctl -w net.core.rmem_max=134217728 >/dev/null 2>&1
+                sysctl -w net.core.wmem_max=134217728 >/dev/null 2>&1
+                sysctl -w net.ipv4.tcp_fastopen=3 >/dev/null 2>&1
+                sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
+                systemctl restart elite-x-netbooster 2>/dev/null
+                echo -e "${GREEN}✅ Speed optimized${NC}"
+                read -p "Press Enter..." ;;
+            3) 
+                sync && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+                systemctl restart elite-x-ramcleaner elite-x-dnscache 2>/dev/null
+                echo -e "${GREEN}✅ Cache cleaned${NC}"
+                read -p "Press Enter..." ;;
+            4) nano /etc/elite-x/server_msg/banner; systemctl restart sshd; echo -e "${GREEN}✅ Banner updated${NC}"; read -p "Press Enter..." ;;
+            5) 
+                /usr/local/bin/elite-x-banner-updater
+                systemctl restart sshd
+                echo -e "${GREEN}✅ Banner reset to default${NC}"; read -p "Press Enter..." ;;
+            6) 
+                iface=$(ip route | grep default | awk '{print $5}' | head -1)
+                rx=$(cat /sys/class/net/$iface/statistics/rx_bytes 2>/dev/null || echo 0)
+                tx=$(cat /sys/class/net/$iface/statistics/tx_bytes 2>/dev/null || echo 0)
+                echo -e "RX: $(echo "scale=2; $rx/1073741824" | bc) GB"
+                echo -e "TX: $(echo "scale=2; $tx/1073741824" | bc) GB"
+                read -p "Press Enter..." ;;
+            7) 
+                for f in "$BW_DIR"/*.usage; do [ -f "$f" ] && echo "0" > "$f"; done
+                for u in "$UD"/*; do [ -f "$u" ] && usermod -U "$(basename "$u")" 2>/dev/null; done
+                echo -e "${GREEN}✅ All bandwidth reset${NC}"
+                read -p "Press Enter..." ;;
+            8)
+                [ "$autoban" = "1" ] && echo "0" > "$AUTOBAN_FLAG" || echo "1" > "$AUTOBAN_FLAG"
+                systemctl restart elite-x-connmon 2>/dev/null
+                echo -e "${GREEN}✅ Toggled${NC}"
+                read -p "Press Enter..." ;;
+            9) 
+                for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt elite-x-logcleaner sshd; do
+                    systemctl restart "$s" 2>/dev/null || true
+                done
+                /usr/local/bin/elite-x-banner-updater 2>/dev/null
+                echo -e "${GREEN}✅ All services restarted${NC}"
+                read -p "Press Enter..." ;;
+            10) read -p "Reboot? (y/n): " c; [ "$c" = "y" ] && reboot ;;
+            11)
+                read -p "Type 'YES' to confirm uninstall: " c
+                [ "$c" = "YES" ] && {
+                    for u in "$UD"/*; do
+                        [ -f "$u" ] && { un=$(basename "$u"); pkill -u "$un" 2>/dev/null; userdel -r "$un" 2>/dev/null; }
+                    done
+                    for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt elite-x-logcleaner; do
+                        systemctl stop "$s" 2>/dev/null; systemctl disable "$s" 2>/dev/null
+                    done
+                    systemctl disable elite-x-banner-refresh.timer 2>/dev/null
+                    rm -rf /etc/systemd/system/{dnstt-elite-x*,elite-x*}
+                    rm -rf /etc/dnstt /etc/elite-x /var/run/elite-x
+                    rm -f /usr/local/bin/{dnstt-*,elite-x*}
+                    sed -i '/^Banner/d' /etc/ssh/sshd_config
+                    sed -i '/elite-x-banner-updater/d' /etc/pam.d/sshd
+                    rm -f /etc/ssh/sshd_config.d/elite-x-vpn.conf
+                    systemctl restart sshd 2>/dev/null
+                    rm -f /etc/profile.d/elite-x-dashboard.sh
+                    sed -i '/elite-x/d' ~/.bashrc 2>/dev/null
+                    rm -f /etc/sysctl.d/99-elite-x-vpn.conf
+                    systemctl daemon-reload
+                    echo -e "${GREEN}✅ Uninstalled!${NC}"
+                    exit 0
+                }
+                read -p "Press Enter..." ;;
+            12)
+                echo -e "${YELLOW}Recompiling all C boosters...${NC}"
+                optimize_system_for_vpn
+                create_c_edns_proxy
+                create_c_bandwidth_monitor
+                create_c_connection_monitor
+                create_c_network_booster
+                create_c_dns_cache
+                create_c_ram_cleaner
+                create_c_irq_optimizer
+                create_c_log_cleaner
+                create_c_data_usage
+                systemctl daemon-reload
+                for s in dnstt-elite-x-proxy elite-x-bandwidth elite-x-connmon elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt elite-x-logcleaner elite-x-datausage; do
+                    systemctl restart "$s" 2>/dev/null || true
+                done
+                echo -e "${GREEN}✅ All C boosters recompiled${NC}"
+                read -p "Press Enter..." ;;
+            13)
+                echo -e "${YELLOW}Fixing VPN/SSH configuration...${NC}"
+                configure_ssh_for_vpn
+                systemctl restart dnstt-elite-x dnstt-elite-x-proxy sshd 2>/dev/null
+                echo -e "${GREEN}✅ VPN/SSH fixed${NC}"
+                read -p "Press Enter..." ;;
+            14)
+                echo -e "${YELLOW}Refreshing server messages for all users...${NC}"
+                /usr/local/bin/elite-x-banner-updater 2>/dev/null
+                for user in "$UD"/*; do
+                    [ -f "$user" ] && /usr/local/bin/elite-x-banner-updater "$(basename "$user")" 2>/dev/null
+                done
+                systemctl restart sshd
+                echo -e "${GREEN}✅ Server messages refreshed!${NC}"
+                read -p "Press Enter..." ;;
+            15)
+                echo -e "${YELLOW}Testing Server Message...${NC}"
+                echo -e "${CYAN}Current banner content:${NC}"
+                echo -e "${WHITE}───────────────────────────────────────${NC}"
+                cat /etc/elite-x/server_msg/banner 2>/dev/null || echo -e "${RED}Banner file not found!${NC}"
+                echo -e "${WHITE}───────────────────────────────────────${NC}"
+                echo -e "${GREEN}✅ Test complete${NC}"
+                read -p "Press Enter..." ;;
+            0) return ;;
+        esac
+    done
 }
 
 main_menu() {
@@ -931,7 +1664,7 @@ main_menu() {
         show_dashboard
         
         echo -e "${PURPLE}╔════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${PURPLE}║${GREEN}${BOLD}               MAIN MENU v3.7                     ${PURPLE}║${NC}"
+        echo -e "${PURPLE}║${GREEN}${BOLD}               MAIN MENU v3.6                     ${PURPLE}║${NC}"
         echo -e "${PURPLE}╠════════════════════════════════════════════════════════════════╣${NC}"
         echo -e "${PURPLE}║${WHITE}  [1] Create User   [2] List Users      [3] User Details${NC}"
         echo -e "${PURPLE}║${WHITE}  [4] Renew User    [5] Set Conn Limit   [6] Set BW Limit${NC}"
@@ -953,29 +1686,17 @@ main_menu() {
             9) elite-x-user unlock; read -p "Press Enter..." ;;
             10) elite-x-user del; read -p "Press Enter..." ;;
             11) elite-x-user deleted; read -p "Press Enter..." ;;
-            [Ss])
-                echo -e "${CYAN}Settings:${NC}"
-                echo -e "  [1] Restart All  [2] Fix VPN/SSH  [3] Refresh Msg"
-                echo -e "  [4] Edit Banner  [5] Reset Banner  [6] Reboot"
-                read -p "Choice: " sc
-                case $sc in
-                    1) for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-connmon sshd; do systemctl restart "$s" 2>/dev/null; done; echo "✅ Done" ;;
-                    2) configure_ssh_for_vpn; systemctl restart dnstt-elite-x dnstt-elite-x-proxy sshd 2>/dev/null; echo "✅ Done" ;;
-                    3) for u in "$UD"/*; do [ -f "$u" ] && /usr/local/bin/elite-x-banner-updater "$(basename "$u")" 2>/dev/null; done; /usr/local/bin/elite-x-banner-updater; systemctl restart sshd; echo "✅ Refreshed" ;;
-                    4) nano /etc/elite-x/server_msg/banner; systemctl restart sshd; echo "✅ Saved" ;;
-                    5) /usr/local/bin/elite-x-banner-updater; systemctl restart sshd; echo "✅ Reset" ;;
-                    6) reboot ;;
-                esac
-                read -p "Press Enter..." ;;
-            [Mm])
+            [Ss]) settings_menu ;;
+            [Mm]) 
                 clear
                 echo -e "${CYAN}╔═══════════════════════════════════════════╗${NC}"
                 echo -e "${CYAN}║${YELLOW}       SERVER MESSAGE PREVIEW              ${CYAN}║${NC}"
                 echo -e "${CYAN}╠═══════════════════════════════════════════╣${NC}"
-                cat /etc/elite-x/server_msg/banner 2>/dev/null
+                cat /etc/elite-x/server_msg/banner 2>/dev/null || echo -e "${RED}Message file missing! Run 'refreshmsg'${NC}"
                 echo -e "${CYAN}╚═══════════════════════════════════════════╝${NC}"
                 read -p "Press Enter..." ;;
             0) echo -e "${GREEN}Goodbye!${NC}"; exit 0 ;;
+            *) echo -e "${RED}Invalid${NC}"; read -p "Press Enter..." ;;
         esac
     done
 }
@@ -1025,22 +1746,29 @@ case $LOC in
 esac
 
 echo -e "${YELLOW}🔄 Cleaning previous installation...${NC}"
-for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt elite-x-logcleaner elite-x-notify; do
-    systemctl stop "$s" 2>/dev/null || true; systemctl disable "$s" 2>/dev/null || true
+for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon elite-x-cleaner elite-x-traffic elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt elite-x-logcleaner elite-x-banner-refresh 3proxy-elite; do
+    systemctl stop "$s" 2>/dev/null || true
+    systemctl disable "$s" 2>/dev/null || true
 done
 systemctl disable elite-x-banner-refresh.timer 2>/dev/null || true
-pkill -f dnstt-server 2>/dev/null || true; pkill -f elite-x-edns-proxy 2>/dev/null || true
-rm -rf /etc/systemd/system/{dnstt-elite-x*,elite-x*} 2>/dev/null
+systemctl stop elite-x-banner-refresh.timer 2>/dev/null || true
+pkill -f dnstt-server 2>/dev/null || true
+pkill -f elite-x-edns-proxy 2>/dev/null || true
+rm -rf /etc/systemd/system/{dnstt-elite-x*,elite-x*,3proxy-elite*} 2>/dev/null
 rm -rf /etc/dnstt /etc/elite-x /var/run/elite-x 2>/dev/null
-rm -f /usr/local/bin/{dnstt-*,elite-x*} 2>/dev/null
+rm -f /usr/local/bin/{dnstt-*,elite-x*,3proxy} 2>/dev/null
 rm -f /etc/ssh/sshd_config.d/elite-x-vpn.conf 2>/dev/null
+rm -f /etc/sysctl.d/99-elite-x-vpn.conf 2>/dev/null
 sed -i '/^Banner/d' /etc/ssh/sshd_config 2>/dev/null
+sed -i '/Include \/etc\/ssh\/sshd_config.d\/\*\.conf/d' /etc/ssh/sshd_config 2>/dev/null
 sed -i '/elite-x-banner-updater/d' /etc/pam.d/sshd 2>/dev/null
 systemctl restart sshd 2>/dev/null || true
 sleep 2
 
-mkdir -p /etc/elite-x/{users,deleted,data_usage,connections,banned,bandwidth/pidtrack,server_msg}
-mkdir -p /etc/ssh/sshd_config.d /var/run/elite-x/bandwidth
+# Create directories
+mkdir -p /etc/elite-x/{banner,users,traffic,deleted,data_usage,connections,banned,traffic_stats,bandwidth/pidtrack,server_msg}
+mkdir -p /etc/ssh/sshd_config.d
+mkdir -p /var/run/elite-x/bandwidth
 echo "$TDOMAIN" > /etc/elite-x/subdomain
 echo "$SEL_LOC" > /etc/elite-x/location
 echo "$MTU" > /etc/elite-x/mtu
@@ -1048,29 +1776,47 @@ echo "0" > "$AUTOBAN_FLAG"
 echo "$STATIC_PRIVATE_KEY" > /etc/elite-x/private_key
 echo "$STATIC_PUBLIC_KEY" > /etc/elite-x/public_key
 
+# Configure DNS
+[ -f /etc/systemd/resolved.conf ] && {
+    sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
+    systemctl restart systemd-resolved 2>/dev/null || true
+}
 [ -L /etc/resolv.conf ] && rm -f /etc/resolv.conf
 echo "nameserver 8.8.8.8" > /etc/resolv.conf
 echo "nameserver 8.8.4.4" >> /etc/resolv.conf
 
+# Install dependencies
 echo -e "${YELLOW}📦 Installing dependencies...${NC}"
 apt update -y
-apt install -y curl jq iptables ethtool dnsutils net-tools iproute2 bc build-essential gcc make python3 2>/dev/null
+apt install -y curl jq iptables ethtool dnsutils net-tools iproute2 bc build-essential git gcc make 2>/dev/null
 
+# Setup C compiler
+echo -e "${YELLOW}🔧 Setting up C compiler environment...${NC}"
+apt-get install -y gcc make build-essential 2>/dev/null
+echo -e "${GREEN}✅ C compiler ready${NC}"
+
+# Download DNSTT
 echo -e "${YELLOW}📥 Downloading DNSTT server...${NC}"
-curl -fsSL https://dnstt.network/dnstt-server-linux-amd64 -o /usr/local/bin/dnstt-server 2>/dev/null || curl -fsSL https://github.com/NoXFiQ/Elite-X-dns.sh/raw/main/dnstt-server -o /usr/local/bin/dnstt-server 2>/dev/null
+curl -fsSL https://dnstt.network/dnstt-server-linux-amd64 -o /usr/local/bin/dnstt-server 2>/dev/null || {
+    curl -fsSL https://github.com/NoXFiQ/Elite-X-dns.sh/raw/main/dnstt-server -o /usr/local/bin/dnstt-server 2>/dev/null
+}
 chmod +x /usr/local/bin/dnstt-server
 
+# Setup DNSTT keys
 mkdir -p /etc/dnstt
 echo "$STATIC_PRIVATE_KEY" > /etc/dnstt/server.key
 echo "$STATIC_PUBLIC_KEY" > /etc/dnstt/server.pub
 chmod 600 /etc/dnstt/server.key
 
+# Create DNSTT service
 cat > /etc/systemd/system/dnstt-elite-x.service <<EOF
 [Unit]
-Description=ELITE-X DNSTT Server v3.7
+Description=ELITE-X DNSTT Server v3.6
 After=network-online.target
+Wants=network-online.target
 [Service]
 Type=simple
+User=root
 ExecStart=/usr/local/bin/dnstt-server -udp :5300 -mtu ${MTU} -privkey-file /etc/dnstt/server.key ${TDOMAIN} 127.0.0.1:22
 Restart=always
 RestartSec=5
@@ -1079,88 +1825,151 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 EOF
 
+# Optimize system
 optimize_system_for_vpn
+
+# Create server message system FIRST
 create_server_message_updater
+
+# Configure SSH with server message
 configure_ssh_for_vpn
+
+# Configure PAM for dynamic banner on login
 configure_pam_banner
 
+# Create C-based components
 create_c_edns_proxy
-[ -f /usr/local/bin/elite-x-edns-proxy ] && cat > /etc/systemd/system/dnstt-elite-x-proxy.service <<EOF
+
+if [ -f /usr/local/bin/elite-x-edns-proxy ]; then
+    cat > /etc/systemd/system/dnstt-elite-x-proxy.service <<EOF
 [Unit]
-Description=ELITE-X C EDNS Proxy
+Description=ELITE-X C EDNS Proxy (Fixed)
 After=dnstt-elite-x.service
+Wants=dnstt-elite-x.service
 [Service]
 Type=simple
+User=root
 ExecStart=/usr/local/bin/elite-x-edns-proxy
 Restart=always
 RestartSec=3
 [Install]
 WantedBy=multi-user.target
 EOF
+fi
 
 create_c_bandwidth_monitor
 create_c_connection_monitor
-create_simple_c_services
+create_c_data_usage
+create_c_network_booster
+create_c_dns_cache
+create_c_ram_cleaner
+create_c_irq_optimizer
+create_c_log_cleaner
 
+# Create user scripts
 create_user_script
 create_main_menu
 
+# Enable and start all services
 systemctl daemon-reload
 
 ALL_SERVICES=(dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt elite-x-logcleaner)
 
 for s in "${ALL_SERVICES[@]}"; do
-    [ -f "/etc/systemd/system/${s}.service" ] && { systemctl enable "$s" 2>/dev/null || true; systemctl start "$s" 2>/dev/null || true; }
+    if [ -f "/etc/systemd/system/${s}.service" ]; then
+        systemctl enable "$s" 2>/dev/null || true
+        systemctl start "$s" 2>/dev/null || true
+    fi
 done
 
+# Start the banner refresh timer
 systemctl enable elite-x-banner-refresh.timer 2>/dev/null || true
 systemctl start elite-x-banner-refresh.timer 2>/dev/null || true
 
+# Cache IP
 IP=$(curl -4 -s ifconfig.me 2>/dev/null || echo "Unknown")
 echo "$IP" > /etc/elite-x/cached_ip
 
+# Setup auto-login dashboard
 cat > /etc/profile.d/elite-x-dashboard.sh <<'EOF'
 #!/bin/bash
-[ -f /usr/local/bin/elite-x ] && [ -z "$ELITE_X_SHOWN" ] && export ELITE_X_SHOWN=1 && /usr/local/bin/elite-x
+if [ -f /usr/local/bin/elite-x ] && [ -z "$ELITE_X_SHOWN" ]; then
+    export ELITE_X_SHOWN=1
+    /usr/local/bin/elite-x
+fi
 EOF
 chmod +x /etc/profile.d/elite-x-dashboard.sh
 
+# Add aliases
 cat >> ~/.bashrc <<'EOF'
 alias menu='elite-x'
 alias elitex='elite-x'
 alias adduser='elite-x-user add'
 alias users='elite-x-user list'
-alias fixvpn='systemctl restart dnstt-elite-x dnstt-elite-x-proxy sshd && echo "✅ Fixed!"'
-alias refreshmsg='/usr/local/bin/elite-x-banner-updater && for u in /etc/elite-x/users/*; do [ -f "$u" ] && /usr/local/bin/elite-x-banner-updater "$(basename "$u")"; done && systemctl restart sshd && echo "✅ Msg Refreshed!"'
+alias setbw='elite-x-user setbw'
+alias boost='systemctl restart elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt'
+alias fixvpn='systemctl restart dnstt-elite-x dnstt-elite-x-proxy sshd && echo "VPN Fixed!"'
+alias refreshmsg='/usr/local/bin/elite-x-banner-updater && for u in /etc/elite-x/users/*; do [ -f "$u" ] && /usr/local/bin/elite-x-banner-updater "$(basename "$u")"; done && systemctl restart sshd && echo "✅ Server messages refreshed!"'
+alias testmsg='cat /etc/elite-x/server_msg/banner'
 EOF
 
+# Generate final banner
 /usr/local/bin/elite-x-banner-updater 2>/dev/null
 
+# ═══════════════════════════════════════════════════════════
+# FINAL DISPLAY
+# ═══════════════════════════════════════════════════════════
 clear
 echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║${YELLOW}${BOLD}    ELITE-X v3.7 FALCON + SERVER MSG - INSTALLED!  ${GREEN}║${NC}"
+echo -e "${GREEN}║${YELLOW}${BOLD}    ELITE-X v3.6 FALCON + SERVER MSG - INSTALLED!  ${GREEN}║${NC}"
 echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}║${WHITE}  Domain     :${CYAN} $TDOMAIN${NC}"
 echo -e "${GREEN}║${WHITE}  Location   :${CYAN} $SEL_LOC (MTU: $MTU)${NC}"
 echo -e "${GREEN}║${WHITE}  IP         :${CYAN} $IP${NC}"
+echo -e "${GREEN}║${WHITE}  Version    :${CYAN} v3.6 Falcon Ultra C + Server Message${NC}"
 echo -e "${GREEN}║${WHITE}  Public Key :${CYAN} $STATIC_PUBLIC_KEY${NC}"
 echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
 
-for s in dnstt-elite-x dnstt-elite-x-proxy sshd elite-x-bandwidth elite-x-connmon; do
-    systemctl is-active "$s" >/dev/null 2>&1 && echo -e "${GREEN}║  ✅ $s: Running${NC}" || echo -e "${RED}║  ❌ $s: Failed${NC}"
-done
-[ -f /etc/elite-x/server_msg/banner ] && echo -e "${GREEN}║  ✅ Server Message: Active${NC}" || echo -e "${RED}║  ❌ Server Message: Inactive${NC}"
+# Check services (all systemd services only)
+check_svc() {
+    local name=$1 local service=$2
+    if systemctl is-active "$service" >/dev/null 2>&1; then
+        echo -e "${GREEN}║  ✅ $name: Running${NC}"
+    else
+        echo -e "${RED}║  ❌ $name: Failed${NC}"
+    fi
+}
+
+check_svc "DNSTT Server     " "dnstt-elite-x"
+check_svc "C EDNS Proxy     " "dnstt-elite-x-proxy"
+check_svc "SSH Server       " "sshd"
+check_svc "C Bandwidth Mon  " "elite-x-bandwidth"
+check_svc "C Conn Monitor   " "elite-x-connmon"
+check_svc "C Net Booster    " "elite-x-netbooster"
+check_svc "C DNS Cache      " "elite-x-dnscache"
+check_svc "C RAM Cleaner    " "elite-x-ramcleaner"
+check_svc "C IRQ Optimizer  " "elite-x-irqopt"
+check_svc "C Log Cleaner    " "elite-x-logcleaner"
+
+# Server message check (file-based, not service)
+if [ -f /etc/elite-x/server_msg/banner ] && [ -x /usr/local/bin/elite-x-banner-updater ]; then
+    echo -e "${GREEN}║  ✅ Server Message  : Active${NC}"
+else
+    echo -e "${RED}║  ❌ Server Message  : Inactive${NC}"
+fi
 
 echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "${YELLOW}Commands: menu | elitex | adduser | users | fixvpn | refreshmsg${NC}"
+echo -e "${YELLOW}Commands: menu | elite-x | users | adduser | setbw | boost | fixvpn | refreshmsg | testmsg${NC}"
+echo -e "${YELLOW}Re-login or type 'exec bash' to access the dashboard${NC}"
 echo ""
 echo -e "${CYAN}═══ SERVER MESSAGE FEATURE ═══${NC}"
 echo -e "${WHITE}Users see their details when they connect:${NC}"
 echo -e "${WHITE}  👤 USERNAME • 📅 EXPIRE • ⏳ REMAINING (Xday + Yhr)${NC}"
 echo -e "${WHITE}  📊 LIMIT GB • 💾 USAGE GB • 🔗 CONNECTIONS${NC}"
+echo -e "${WHITE}  ⏰ Banner auto-refreshes every 5 minutes${NC}"
 echo ""
-echo -e "${CYAN}═══ SLOWDNS CONFIG ═══${NC}"
+echo -e "${CYAN}SLOWDNS CONFIG FOR CLIENT:${NC}"
 echo -e "${WHITE}  NS     : ${GREEN}$TDOMAIN${NC}"
 echo -e "${WHITE}  PUBKEY : ${GREEN}$STATIC_PUBLIC_KEY${NC}"
 echo -e "${WHITE}  PORT   : ${GREEN}53${NC}"
