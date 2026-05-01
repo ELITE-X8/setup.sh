@@ -1,6 +1,6 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════════╗
-#  ELITE-X SLOWDNS SCRIPT v3.5 - FALCON ULTRA C + SERVER MESSAGE
+#  ELITE-X SLOWDNS SCRIPT v3.6 - FALCON ULTRA C + SERVER MESSAGE
 # ╚══════════════════════════════════════════════════════════════╝
 set -euo pipefail
 
@@ -27,7 +27,7 @@ SERVER_MSG_DIR="/etc/elite-x/server_msg"
 show_banner() {
     clear
     echo -e "${PURPLE}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${YELLOW}${BOLD}    ELITE-X SLOWDNS v3.5 - FALCON ULTRA C + SERVER MSG    ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${YELLOW}${BOLD}    ELITE-X SLOWDNS v3.6 - FALCON ULTRA C + SERVER MSG    ${PURPLE}║${NC}"
     echo -e "${PURPLE}║${GREEN}${BOLD}  GB Limits • Bandwidth • C Boosters • Auto-Delete • User Info  ${PURPLE}║${NC}"
     echo -e "${PURPLE}║${CYAN}${BOLD}         TURBO BOOST EDITION - BBR + FQ + C ENGINE            ${PURPLE}║${NC}"
     echo -e "${PURPLE}╚═══════════════════════════════════════════════════════════════╝${NC}"
@@ -88,7 +88,6 @@ configure_ssh_for_vpn() {
     
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak 2>/dev/null || true
     
-    # Remove old directives
     sed -i '/^Banner/d' /etc/ssh/sshd_config 2>/dev/null
     sed -i '/Include \/etc\/ssh\/sshd_config.d\/\*\.conf/d' /etc/ssh/sshd_config 2>/dev/null
     
@@ -131,19 +130,18 @@ SSHCONF
 }
 
 # ═══════════════════════════════════════════════════════════
-# SERVER MESSAGE GENERATOR - UPDATES ON USER CONNECT
+# SERVER MESSAGE GENERATOR (DINAMIC UPDATER)
 # ═══════════════════════════════════════════════════════════
 create_server_message_updater() {
-    echo -e "${YELLOW}📝 Creating Server Message Updater...${NC}"
+    echo -e "${YELLOW}📝 Creating Server Message System...${NC}"
     
+    mkdir -p "$SERVER_MSG_DIR"
+    
+    # Create the banner updater script
     cat > /usr/local/bin/elite-x-banner-updater <<'BANNEREOF'
 #!/bin/bash
-# ELITE-X Dynamic Banner Updater for SSH Server Message
-# Uses pam_exec to update banner for each user on login
-
 USER_DB="/etc/elite-x/users"
 BW_DIR="/etc/elite-x/bandwidth"
-CONN_DB="/etc/elite-x/connections"
 MSG_DIR="/etc/elite-x/server_msg"
 
 mkdir -p "$MSG_DIR"
@@ -151,97 +149,140 @@ mkdir -p "$MSG_DIR"
 generate_banner() {
     local username="$1"
     
-    # If not a VPN user, show generic message
-    if [ ! -f "$USER_DB/$username" ]; then
-        return
-    fi
-    
-    # Get user details
-    local expire_date=$(grep "Expire:" "$USER_DB/$username" | awk '{print $2}')
-    local bandwidth_gb=$(grep "Bandwidth_GB:" "$USER_DB/$username" | awk '{print $2}')
-    local conn_limit=$(grep "Conn_Limit:" "$USER_DB/$username" | awk '{print $2}')
-    
-    bandwidth_gb=${bandwidth_gb:-0}
-    conn_limit=${conn_limit:-1}
-    
-    # Get usage
-    local usage_bytes=$(cat "$BW_DIR/${username}.usage" 2>/dev/null || echo 0)
-    local usage_gb=$(echo "scale=2; $usage_bytes / 1073741824" | bc 2>/dev/null || echo "0.00")
-    
-    # Get active connections
-    local current_conn=$(who | grep -wc "$username" 2>/dev/null || echo 0)
-    [ "$current_conn" -eq 0 ] && current_conn=$(ps aux | grep "sshd:" | grep "$username" | grep -v grep | grep -v "sshd:.*@notty" | wc -l)
-    current_conn=${current_conn:-0}
-    
-    # Calculate remaining days and hours
-    local now_ts=$(date +%s)
-    local expire_ts=$(date -d "$expire_date" +%s 2>/dev/null || echo 0)
-    local remaining_seconds=$((expire_ts - now_ts))
-    local remaining_days=$((remaining_seconds / 86400))
-    local remaining_hours=$(((remaining_seconds % 86400) / 3600))
-    
-    [ $remaining_days -lt 0 ] && remaining_days=0
-    [ $remaining_hours -lt 0 ] && remaining_hours=0
-    
-    # Format bandwidth
-    local bw_display="Unlimited"
-    [ "$bandwidth_gb" != "0" ] && bw_display="${bandwidth_gb} GB"
-    
-    # Build banner message
-    cat > "$MSG_DIR/banner" <<BANNER
+    # Default generic banner
+    cat > "$MSG_DIR/banner" <<'DEFAULTBAN'
 ╔═══════════════════════════════════════════╗
 ║     ⚡ ELITE-X SLOWDNS VPN ⚡            ║
-║     v3.5 FALCON ULTRA C                 ║
+║     v3.6 FALCON ULTRA C                 ║
 ╠═══════════════════════════════════════════╣
-║  👤 USERNAME : $username
-║  📅 EXPIRE   : $expire_date
-║  ⏳ REMAINING: ${remaining_days} day(s) + ${remaining_hours} hr(s)
-║  📊 LIMIT GB : $bw_display
-║  💾 USAGE GB : ${usage_gb} GB
-║  🔗 CONNECTION: ${current_conn}/${conn_limit}
+║  🔐 Connected Successfully!             ║
+╠═══════════════════════════════════════════╣
+║  🚀 Enjoy Fast & Stable Connection!     ║
+╚═══════════════════════════════════════════╝
+DEFAULTBAN
+
+    # If username provided and user file exists, generate custom banner
+    if [ -n "$username" ] && [ -f "$USER_DB/$username" ]; then
+        local expire_date=$(grep "Expire:" "$USER_DB/$username" | awk '{print $2}')
+        local bandwidth_gb=$(grep "Bandwidth_GB:" "$USER_DB/$username" | awk '{print $2}')
+        local conn_limit=$(grep "Conn_Limit:" "$USER_DB/$username" | awk '{print $2}')
+        
+        bandwidth_gb=${bandwidth_gb:-0}
+        conn_limit=${conn_limit:-1}
+        
+        # Get bandwidth usage
+        local usage_bytes=$(cat "$BW_DIR/${username}.usage" 2>/dev/null || echo 0)
+        local usage_gb=$(echo "scale=2; $usage_bytes / 1073741824" | bc 2>/dev/null || echo "0.00")
+        
+        # Get active connections
+        local current_conn=0
+        current_conn=$(who | grep -wc "$username" 2>/dev/null || echo 0)
+        [ "$current_conn" -eq 0 ] && current_conn=$(ps aux 2>/dev/null | grep "sshd:" | grep "$username" | grep -v grep | grep -v "sshd:.*@notty" | wc -l)
+        current_conn=${current_conn:-0}
+        
+        # Calculate remaining time
+        local now_ts=$(date +%s)
+        local expire_ts=$(date -d "$expire_date" +%s 2>/dev/null || echo 0)
+        local remaining_seconds=$((expire_ts - now_ts))
+        local remaining_days=$((remaining_seconds / 86400))
+        local remaining_hours=$(((remaining_seconds % 86400) / 3600))
+        
+        [ $remaining_days -lt 0 ] && remaining_days=0
+        [ $remaining_hours -lt 0 ] && remaining_hours=0
+        
+        # Format bandwidth display
+        local bw_display="Unlimited"
+        [ "$bandwidth_gb" != "0" ] && bw_display="${bandwidth_gb} GB"
+        
+        # Status indicator
+        local status="🟢 ACTIVE"
+        if [ $remaining_days -le 0 ]; then
+            status="⛔ EXPIRED"
+        elif [ $remaining_days -le 3 ]; then
+            status="⚠️ EXPIRING SOON"
+        fi
+        
+        # Build the dynamic banner
+        cat > "$MSG_DIR/banner" <<BANNER
+╔═══════════════════════════════════════════╗
+║     ⚡ ELITE-X SLOWDNS VPN ⚡            ║
+║     v3.6 FALCON ULTRA C                 ║
+╠═══════════════════════════════════════════╣
+║  ACCOUNT STATUS
+║
+║  USERNAME   : $username
+║  EXPIRE     : $expire_date
+║  REMAINING  : ${remaining_days} day(s) + ${remaining_hours} hr(s)
+║  LIMIT GB   : $bw_display
+║  USAGE GB   : ${usage_gb} GB
+║  CONNECTION : ${current_conn}/${conn_limit}
+║  STATUS     : $status
 ╠═══════════════════════════════════════════╣
 ║  🚀 Enjoy Fast & Stable Connection!     ║
 ╚═══════════════════════════════════════════╝
 BANNER
-
-    chmod 644 "$MSG_DIR/banner"
+        
+        chmod 644 "$MSG_DIR/banner"
+    fi
 }
 
-# If called with username argument
+# Run with username argument
 if [ -n "${1:-}" ]; then
     generate_banner "$1"
+else
+    generate_banner ""
 fi
 BANNEREOF
     chmod +x /usr/local/bin/elite-x-banner-updater
+    
+    # Generate initial generic banner
+    /usr/local/bin/elite-x-banner-updater
+    
+    # Create a systemd timer service to refresh messages periodically
+    cat > /etc/systemd/system/elite-x-banner-refresh.service <<'EOF'
+[Unit]
+Description=ELITE-X Banner Refresh Service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'for user in /etc/elite-x/users/*; do [ -f "$user" ] && /usr/local/bin/elite-x-banner-updater "$(basename "$user")" 2>/dev/null; done; /usr/local/bin/elite-x-banner-updater'
+EOF
+
+    cat > /etc/systemd/system/elite-x-banner-refresh.timer <<'EOF'
+[Unit]
+Description=ELITE-X Banner Refresh Timer (Every 5 min)
+Requires=elite-x-banner-refresh.service
+
+[Timer]
+OnBootSec=30sec
+OnUnitActiveSec=5min
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable elite-x-banner-refresh.timer 2>/dev/null || true
+    systemctl start elite-x-banner-refresh.timer 2>/dev/null || true
+    
+    echo -e "${GREEN}✅ Server Message System ready${NC}"
 }
 
 # ═══════════════════════════════════════════════════════════
-# PAM CONFIGURATION FOR DYNAMIC BANNER
+# PAM CONFIGURATION FOR DYNAMIC BANNER ON LOGIN
 # ═══════════════════════════════════════════════════════════
 configure_pam_banner() {
-    echo -e "${YELLOW}🔧 Configuring PAM for dynamic banner...${NC}"
+    echo -e "${YELLOW}🔧 Configuring PAM for dynamic banner on login...${NC}"
     
-    # Create initial generic banner
-    mkdir -p "$SERVER_MSG_DIR"
-    cat > "$SERVER_MSG_DIR/banner" <<'EOF'
-╔═══════════════════════════════════════════╗
-║     ⚡ ELITE-X SLOWDNS VPN ⚡            ║
-║     v3.5 FALCON ULTRA C                 ║
-╠═══════════════════════════════════════════╣
-║  🔐 AUTHENTICATION SUCCESSFUL!          ║
-║  📊 Loading your account details...     ║
-╠═══════════════════════════════════════════╣
-║  🚀 Enjoy Fast & Stable Connection!     ║
-╚═══════════════════════════════════════════╝
-EOF
-    chmod 644 "$SERVER_MSG_DIR/banner"
+    # Remove old entry if exists
+    sed -i '/elite-x-banner-updater/d' /etc/pam.d/sshd 2>/dev/null
     
-    # Add pam_exec to update banner on login
-    if ! grep -q "elite-x-banner-updater" /etc/pam.d/sshd 2>/dev/null; then
-        sed -i '1i session    optional     pam_exec.so seteuid /usr/local/bin/elite-x-banner-updater' /etc/pam.d/sshd
-    fi
+    # Add pam_exec to run on every SSH login
+    sed -i '1i session    optional     pam_exec.so seteuid /usr/local/bin/elite-x-banner-updater' /etc/pam.d/sshd
     
-    echo -e "${GREEN}✅ PAM configured for dynamic banner${NC}"
+    echo -e "${GREEN}✅ PAM configured - banner updates on each login${NC}"
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -1243,6 +1284,9 @@ INFO
     
     echo "0" > "$BW_DIR/${username}.usage"
     
+    # Refresh banner for this user
+    /usr/local/bin/elite-x-banner-updater "$username" 2>/dev/null
+    
     local bw_disp="Unlimited"; [ "$bandwidth_gb" != "0" ] && bw_disp="${bandwidth_gb} GB"
     SERVER=$(cat /etc/elite-x/subdomain 2>/dev/null || echo "?")
     IP=$(cat /etc/elite-x/cached_ip 2>/dev/null || echo "?")
@@ -1334,6 +1378,7 @@ renew_user() {
     sed -i "s/Expire: .*/Expire: $new_expire/" "$UD/$username"
     chage -E "$new_expire" "$username" 2>/dev/null
     usermod -U "$username" 2>/dev/null
+    /usr/local/bin/elite-x-banner-updater "$username" 2>/dev/null
     echo -e "${GREEN}✅ User renewed until $new_expire${NC}"
 }
 
@@ -1346,6 +1391,7 @@ set_bandwidth_limit() {
     [[ ! "$new_bw" =~ ^[0-9]+\.?[0-9]*$ ]] && { echo -e "${RED}Invalid!${NC}"; return; }
     grep -q "Bandwidth_GB:" "$UD/$username" && sed -i "s/Bandwidth_GB: .*/Bandwidth_GB: $new_bw/" "$UD/$username" || echo "Bandwidth_GB: $new_bw" >> "$UD/$username"
     [ "$new_bw" = "0" ] && usermod -U "$username" 2>/dev/null
+    /usr/local/bin/elite-x-banner-updater "$username" 2>/dev/null
     echo -e "${GREEN}✅ Bandwidth limit updated${NC}"
 }
 
@@ -1356,11 +1402,12 @@ reset_bandwidth() {
     rm -rf "$PID_DIR/${username}" 2>/dev/null
     rm -f "$PID_DIR/${username}__"*.last 2>/dev/null
     usermod -U "$username" 2>/dev/null
+    /usr/local/bin/elite-x-banner-updater "$username" 2>/dev/null
     echo -e "${GREEN}✅ Bandwidth reset to 0${NC}"
 }
 
 lock_user() { read -p "$(echo -e $GREEN"Username: "$NC)" u; [ ! -f "$UD/$u" ] && { echo -e "${RED}User not found!${NC}"; return; }; usermod -L "$u" 2>/dev/null; pkill -u "$u" 2>/dev/null || true; echo "$(date) - MANUALLY LOCKED" >> "$BD/$u"; echo -e "${GREEN}✅ User locked${NC}"; }
-unlock_user() { read -p "$(echo -e $GREEN"Username: "$NC)" u; [ ! -f "$UD/$u" ] && { echo -e "${RED}User not found!${NC}"; return; }; usermod -U "$u" 2>/dev/null; echo "$(date) - MANUALLY UNLOCKED" >> "$BD/$u"; echo -e "${GREEN}✅ User unlocked${NC}"; }
+unlock_user() { read -p "$(echo -e $GREEN"Username: "$NC)" u; [ ! -f "$UD/$u" ] && { echo -e "${RED}User not found!${NC}"; return; }; usermod -U "$u" 2>/dev/null; echo "$(date) - MANUALLY UNLOCKED" >> "$BD/$u"; /usr/local/bin/elite-x-banner-updater "$u" 2>/dev/null; echo -e "${GREEN}✅ User unlocked${NC}"; }
 delete_user() { read -p "$(echo -e $GREEN"Username: "$NC)" u; [ ! -f "$UD/$u" ] && { echo -e "${RED}User not found!${NC}"; return; }; cp "$UD/$u" "$DD/${u}_$(date +%Y%m%d_%H%M%S)" 2>/dev/null; pkill -u "$u" 2>/dev/null || true; killall -u "$u" -9 2>/dev/null || true; userdel -r "$u" 2>/dev/null; rm -f "$UD/$u" "$USAGE_DB/$u" "$CONN_DB/$u" "$BD/$u" "$BW_DIR/${u}.usage"; rm -rf "$PID_DIR/${u}" 2>/dev/null; echo -e "${GREEN}✅ User deleted${NC}"; }
 
 details_user() {
@@ -1389,7 +1436,7 @@ case $1 in
     list) list_users ;;
     details) details_user ;;
     renew) renew_user ;;
-    setlimit) read -p "Username: " u; read -p "New limit: " l; [ -f "$UD/$u" ] && { sed -i "s/Conn_Limit: .*/Conn_Limit: $l/" "$UD/$u"; echo -e "${GREEN}✅ Updated${NC}"; } || echo -e "${RED}Not found${NC}" ;;
+    setlimit) read -p "Username: " u; read -p "New limit: " l; [ -f "$UD/$u" ] && { sed -i "s/Conn_Limit: .*/Conn_Limit: $l/" "$UD/$u"; /usr/local/bin/elite-x-banner-updater "$u" 2>/dev/null; echo -e "${GREEN}✅ Updated${NC}"; } || echo -e "${RED}Not found${NC}" ;;
     setbw) set_bandwidth_limit ;;
     resetdata) reset_bandwidth ;;
     deleted) ls "$DD/" 2>/dev/null | head -20 || echo "No deleted users" ;;
@@ -1423,6 +1470,13 @@ show_dashboard() {
     MTU=$(cat /etc/elite-x/mtu 2>/dev/null || echo "1800")
     RAM=$(free -h | awk '/^Mem:/{print $3"/"$2}')
     
+    # Check Server Message system
+    if [ -f /etc/elite-x/server_msg/banner ] && [ -x /usr/local/bin/elite-x-banner-updater ]; then
+        SMSG="${GREEN}✅ Active${NC}"
+    else
+        SMSG="${RED}❌ Inactive${NC}"
+    fi
+    
     DNS=$(systemctl is-active dnstt-elite-x 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
     PRX=$(systemctl is-active dnstt-elite-x-proxy 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
     BW=$(systemctl is-active elite-x-bandwidth 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
@@ -1445,7 +1499,7 @@ show_dashboard() {
     fi
     
     echo -e "${PURPLE}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${YELLOW}${BOLD}      ELITE-X v3.5 - FALCON + SERVER MSG     ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${YELLOW}${BOLD}      ELITE-X v3.6 - FALCON + SERVER MSG     ${PURPLE}║${NC}"
     echo -e "${PURPLE}╠════════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${PURPLE}║${WHITE}  NS        :${GREEN} $SUB${NC}"
     echo -e "${PURPLE}║${WHITE}  IP        :${GREEN} $IP${NC}"
@@ -1453,6 +1507,7 @@ show_dashboard() {
     echo -e "${PURPLE}║${WHITE}  RAM       :${GREEN} $RAM${NC}"
     echo -e "${PURPLE}║${WHITE}  Core      : DNS:$DNS PRX:$PRX BW:$BW${NC}"
     echo -e "${PURPLE}║${WHITE}  Boosters  : NET:$NBOOST DNS:$DNSC RAM:$RAMC IRQ:$IRQ${NC}"
+    echo -e "${PURPLE}║${WHITE}  Server Msg: $SMSG${NC}"
     echo -e "${PURPLE}║${WHITE}  Users     :${GREEN} $TOTAL_USERS total, $ONLINE online${NC}"
     echo -e "${PURPLE}║${WHITE}  Total BW  :${YELLOW} ${TOTAL_BW} GB${NC}"
     echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════╝${NC}"
@@ -1472,8 +1527,8 @@ settings_menu() {
         echo -e "${PURPLE}║${WHITE}  [4] Edit Banner [5] Reset Banner     [6] Traffic Stats${NC}"
         echo -e "${PURPLE}║${WHITE}  [7] Reset All BW [8] Toggle Auto-Ban ($ABSTATUS)${WHITE}${NC}"
         echo -e "${PURPLE}║${WHITE}  [9] Restart All  [10] Reboot VPS      [11] Uninstall${NC}"
-        echo -e "${PURPLE}║${WHITE}  [12] Recompile All C Boosters  [13] Fix VPN/SSH${NC}"
-        echo -e "${PURPLE}║${WHITE}  [14] Refresh Server Message  [0] Back${NC}"
+        echo -e "${PURPLE}║${WHITE}  [12] Recompile C   [13] Fix VPN/SSH    [14] Refresh Msg${NC}"
+        echo -e "${PURPLE}║${WHITE}  [15] Test Svr Msg  [0] Back${NC}"
         echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════╝${NC}"
         read -p "$(echo -e $GREEN"Option: "$NC)" ch
         
@@ -1505,18 +1560,9 @@ settings_menu() {
                 read -p "Press Enter..." ;;
             4) nano /etc/elite-x/server_msg/banner; systemctl restart sshd; echo -e "${GREEN}✅ Banner updated${NC}"; read -p "Press Enter..." ;;
             5) 
-                cat > /etc/elite-x/server_msg/banner <<'BANEOF'
-╔═══════════════════════════════════════════╗
-║     ⚡ ELITE-X SLOWDNS VPN ⚡            ║
-║     v3.5 FALCON ULTRA C                 ║
-╠═══════════════════════════════════════════╣
-║  🔐 AUTHENTICATION SUCCESSFUL!          ║
-║  📊 Loading your account details...     ║
-╠═══════════════════════════════════════════╣
-║  🚀 Enjoy Fast & Stable Connection!     ║
-╚═══════════════════════════════════════════╝
-BANEOF
-                systemctl restart sshd; echo -e "${GREEN}✅ Banner reset${NC}"; read -p "Press Enter..." ;;
+                /usr/local/bin/elite-x-banner-updater
+                systemctl restart sshd
+                echo -e "${GREEN}✅ Banner reset to default${NC}"; read -p "Press Enter..." ;;
             6) 
                 iface=$(ip route | grep default | awk '{print $5}' | head -1)
                 rx=$(cat /sys/class/net/$iface/statistics/rx_bytes 2>/dev/null || echo 0)
@@ -1538,6 +1584,7 @@ BANEOF
                 for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt elite-x-logcleaner sshd; do
                     systemctl restart "$s" 2>/dev/null || true
                 done
+                /usr/local/bin/elite-x-banner-updater 2>/dev/null
                 echo -e "${GREEN}✅ All services restarted${NC}"
                 read -p "Press Enter..." ;;
             10) read -p "Reboot? (y/n): " c; [ "$c" = "y" ] && reboot ;;
@@ -1550,6 +1597,7 @@ BANEOF
                     for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt elite-x-logcleaner; do
                         systemctl stop "$s" 2>/dev/null; systemctl disable "$s" 2>/dev/null
                     done
+                    systemctl disable elite-x-banner-refresh.timer 2>/dev/null
                     rm -rf /etc/systemd/system/{dnstt-elite-x*,elite-x*}
                     rm -rf /etc/dnstt /etc/elite-x /var/run/elite-x
                     rm -f /usr/local/bin/{dnstt-*,elite-x*}
@@ -1567,6 +1615,7 @@ BANEOF
                 read -p "Press Enter..." ;;
             12)
                 echo -e "${YELLOW}Recompiling all C boosters...${NC}"
+                optimize_system_for_vpn
                 create_c_edns_proxy
                 create_c_bandwidth_monitor
                 create_c_connection_monitor
@@ -1584,18 +1633,26 @@ BANEOF
                 read -p "Press Enter..." ;;
             13)
                 echo -e "${YELLOW}Fixing VPN/SSH configuration...${NC}"
-                optimize_system_for_vpn
                 configure_ssh_for_vpn
                 systemctl restart dnstt-elite-x dnstt-elite-x-proxy sshd 2>/dev/null
                 echo -e "${GREEN}✅ VPN/SSH fixed${NC}"
                 read -p "Press Enter..." ;;
             14)
-                echo -e "${YELLOW}Refreshing server message for all users...${NC}"
+                echo -e "${YELLOW}Refreshing server messages for all users...${NC}"
+                /usr/local/bin/elite-x-banner-updater 2>/dev/null
                 for user in "$UD"/*; do
-                    [ -f "$user" ] && /usr/local/bin/elite-x-banner-updater "$(basename "$user")"
+                    [ -f "$user" ] && /usr/local/bin/elite-x-banner-updater "$(basename "$user")" 2>/dev/null
                 done
                 systemctl restart sshd
-                echo -e "${GREEN}✅ Server message refreshed${NC}"
+                echo -e "${GREEN}✅ Server messages refreshed!${NC}"
+                read -p "Press Enter..." ;;
+            15)
+                echo -e "${YELLOW}Testing Server Message...${NC}"
+                echo -e "${CYAN}Current banner content:${NC}"
+                echo -e "${WHITE}───────────────────────────────────────${NC}"
+                cat /etc/elite-x/server_msg/banner 2>/dev/null || echo -e "${RED}Banner file not found!${NC}"
+                echo -e "${WHITE}───────────────────────────────────────${NC}"
+                echo -e "${GREEN}✅ Test complete${NC}"
                 read -p "Press Enter..." ;;
             0) return ;;
         esac
@@ -1607,13 +1664,13 @@ main_menu() {
         show_dashboard
         
         echo -e "${PURPLE}╔════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${PURPLE}║${GREEN}${BOLD}               MAIN MENU v3.5                     ${PURPLE}║${NC}"
+        echo -e "${PURPLE}║${GREEN}${BOLD}               MAIN MENU v3.6                     ${PURPLE}║${NC}"
         echo -e "${PURPLE}╠════════════════════════════════════════════════════════════════╣${NC}"
         echo -e "${PURPLE}║${WHITE}  [1] Create User   [2] List Users      [3] User Details${NC}"
         echo -e "${PURPLE}║${WHITE}  [4] Renew User    [5] Set Conn Limit   [6] Set BW Limit${NC}"
         echo -e "${PURPLE}║${WHITE}  [7] Reset BW      [8] Lock User        [9] Unlock User${NC}"
         echo -e "${PURPLE}║${WHITE}  [10] Delete User  [11] Deleted List     [S] Settings${NC}"
-        echo -e "${PURPLE}║${WHITE}  [0] Exit${NC}"
+        echo -e "${PURPLE}║${WHITE}  [M] Test Message  [0] Exit${NC}"
         echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════╝${NC}"
         read -p "$(echo -e $GREEN"Option: "$NC)" ch
         
@@ -1630,6 +1687,14 @@ main_menu() {
             10) elite-x-user del; read -p "Press Enter..." ;;
             11) elite-x-user deleted; read -p "Press Enter..." ;;
             [Ss]) settings_menu ;;
+            [Mm]) 
+                clear
+                echo -e "${CYAN}╔═══════════════════════════════════════════╗${NC}"
+                echo -e "${CYAN}║${YELLOW}       SERVER MESSAGE PREVIEW              ${CYAN}║${NC}"
+                echo -e "${CYAN}╠═══════════════════════════════════════════╣${NC}"
+                cat /etc/elite-x/server_msg/banner 2>/dev/null || echo -e "${RED}Message file missing! Run 'refreshmsg'${NC}"
+                echo -e "${CYAN}╚═══════════════════════════════════════════╝${NC}"
+                read -p "Press Enter..." ;;
             0) echo -e "${GREEN}Goodbye!${NC}"; exit 0 ;;
             *) echo -e "${RED}Invalid${NC}"; read -p "Press Enter..." ;;
         esac
@@ -1681,10 +1746,12 @@ case $LOC in
 esac
 
 echo -e "${YELLOW}🔄 Cleaning previous installation...${NC}"
-for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon elite-x-cleaner elite-x-traffic elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt elite-x-logcleaner 3proxy-elite; do
+for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon elite-x-cleaner elite-x-traffic elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt elite-x-logcleaner elite-x-banner-refresh 3proxy-elite; do
     systemctl stop "$s" 2>/dev/null || true
     systemctl disable "$s" 2>/dev/null || true
 done
+systemctl disable elite-x-banner-refresh.timer 2>/dev/null || true
+systemctl stop elite-x-banner-refresh.timer 2>/dev/null || true
 pkill -f dnstt-server 2>/dev/null || true
 pkill -f elite-x-edns-proxy 2>/dev/null || true
 rm -rf /etc/systemd/system/{dnstt-elite-x*,elite-x*,3proxy-elite*} 2>/dev/null
@@ -1724,12 +1791,9 @@ apt update -y
 apt install -y curl jq iptables ethtool dnsutils net-tools iproute2 bc build-essential git gcc make 2>/dev/null
 
 # Setup C compiler
-setup_c_compiler() {
-    echo -e "${YELLOW}🔧 Setting up C compiler environment...${NC}"
-    apt-get install -y gcc make build-essential 2>/dev/null
-    echo -e "${GREEN}✅ C compiler ready${NC}"
-}
-setup_c_compiler
+echo -e "${YELLOW}🔧 Setting up C compiler environment...${NC}"
+apt-get install -y gcc make build-essential 2>/dev/null
+echo -e "${GREEN}✅ C compiler ready${NC}"
 
 # Download DNSTT
 echo -e "${YELLOW}📥 Downloading DNSTT server...${NC}"
@@ -1747,7 +1811,7 @@ chmod 600 /etc/dnstt/server.key
 # Create DNSTT service
 cat > /etc/systemd/system/dnstt-elite-x.service <<EOF
 [Unit]
-Description=ELITE-X DNSTT Server v3.5
+Description=ELITE-X DNSTT Server v3.6
 After=network-online.target
 Wants=network-online.target
 [Service]
@@ -1764,13 +1828,13 @@ EOF
 # Optimize system
 optimize_system_for_vpn
 
-# Create server message system
+# Create server message system FIRST
 create_server_message_updater
 
 # Configure SSH with server message
 configure_ssh_for_vpn
 
-# Configure PAM for dynamic banner
+# Configure PAM for dynamic banner on login
 configure_pam_banner
 
 # Create C-based components
@@ -1818,6 +1882,10 @@ for s in "${ALL_SERVICES[@]}"; do
     fi
 done
 
+# Start the banner refresh timer
+systemctl enable elite-x-banner-refresh.timer 2>/dev/null || true
+systemctl start elite-x-banner-refresh.timer 2>/dev/null || true
+
 # Cache IP
 IP=$(curl -4 -s ifconfig.me 2>/dev/null || echo "Unknown")
 echo "$IP" > /etc/elite-x/cached_ip
@@ -1841,24 +1909,29 @@ alias users='elite-x-user list'
 alias setbw='elite-x-user setbw'
 alias boost='systemctl restart elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt'
 alias fixvpn='systemctl restart dnstt-elite-x dnstt-elite-x-proxy sshd && echo "VPN Fixed!"'
-alias refreshmsg='for u in /etc/elite-x/users/*; do [ -f "$u" ] && /usr/local/bin/elite-x-banner-updater "$(basename "$u")"; done && systemctl restart sshd && echo "Server messages refreshed!"'
+alias refreshmsg='/usr/local/bin/elite-x-banner-updater && for u in /etc/elite-x/users/*; do [ -f "$u" ] && /usr/local/bin/elite-x-banner-updater "$(basename "$u")"; done && systemctl restart sshd && echo "✅ Server messages refreshed!"'
+alias testmsg='cat /etc/elite-x/server_msg/banner'
 EOF
 
+# Generate final banner
+/usr/local/bin/elite-x-banner-updater 2>/dev/null
+
 # ═══════════════════════════════════════════════════════════
-# FINAL
+# FINAL DISPLAY
 # ═══════════════════════════════════════════════════════════
 clear
 echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║${YELLOW}${BOLD}    ELITE-X v3.5 FALCON + SERVER MSG - INSTALLED!  ${GREEN}║${NC}"
+echo -e "${GREEN}║${YELLOW}${BOLD}    ELITE-X v3.6 FALCON + SERVER MSG - INSTALLED!  ${GREEN}║${NC}"
 echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}║${WHITE}  Domain     :${CYAN} $TDOMAIN${NC}"
 echo -e "${GREEN}║${WHITE}  Location   :${CYAN} $SEL_LOC (MTU: $MTU)${NC}"
 echo -e "${GREEN}║${WHITE}  IP         :${CYAN} $IP${NC}"
-echo -e "${GREEN}║${WHITE}  Version    :${CYAN} v3.5 Falcon Ultra C + Server Message${NC}"
+echo -e "${GREEN}║${WHITE}  Version    :${CYAN} v3.6 Falcon Ultra C + Server Message${NC}"
 echo -e "${GREEN}║${WHITE}  Public Key :${CYAN} $STATIC_PUBLIC_KEY${NC}"
 echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
 
-check_service() {
+# Check services (all systemd services only)
+check_svc() {
     local name=$1 local service=$2
     if systemctl is-active "$service" >/dev/null 2>&1; then
         echo -e "${GREEN}║  ✅ $name: Running${NC}"
@@ -1867,27 +1940,34 @@ check_service() {
     fi
 }
 
-check_service "DNSTT Server     " "dnstt-elite-x"
-check_service "C EDNS Proxy     " "dnstt-elite-x-proxy"
-check_service "SSH Server       " "sshd"
-check_service "C Bandwidth Mon  " "elite-x-bandwidth"
-check_service "C Conn Monitor   " "elite-x-connmon"
-check_service "C Net Booster    " "elite-x-netbooster"
-check_service "C DNS Cache      " "elite-x-dnscache"
-check_service "C RAM Cleaner    " "elite-x-ramcleaner"
-check_service "C IRQ Optimizer  " "elite-x-irqopt"
-check_service "C Log Cleaner    " "elite-x-logcleaner"
-check_service "Server Message   " "elite-x-banner-updater"
+check_svc "DNSTT Server     " "dnstt-elite-x"
+check_svc "C EDNS Proxy     " "dnstt-elite-x-proxy"
+check_svc "SSH Server       " "sshd"
+check_svc "C Bandwidth Mon  " "elite-x-bandwidth"
+check_svc "C Conn Monitor   " "elite-x-connmon"
+check_svc "C Net Booster    " "elite-x-netbooster"
+check_svc "C DNS Cache      " "elite-x-dnscache"
+check_svc "C RAM Cleaner    " "elite-x-ramcleaner"
+check_svc "C IRQ Optimizer  " "elite-x-irqopt"
+check_svc "C Log Cleaner    " "elite-x-logcleaner"
+
+# Server message check (file-based, not service)
+if [ -f /etc/elite-x/server_msg/banner ] && [ -x /usr/local/bin/elite-x-banner-updater ]; then
+    echo -e "${GREEN}║  ✅ Server Message  : Active${NC}"
+else
+    echo -e "${RED}║  ❌ Server Message  : Inactive${NC}"
+fi
 
 echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "${YELLOW}Commands: menu | elite-x | users | adduser | setbw | boost | fixvpn | refreshmsg${NC}"
+echo -e "${YELLOW}Commands: menu | elite-x | users | adduser | setbw | boost | fixvpn | refreshmsg | testmsg${NC}"
 echo -e "${YELLOW}Re-login or type 'exec bash' to access the dashboard${NC}"
 echo ""
 echo -e "${CYAN}═══ SERVER MESSAGE FEATURE ═══${NC}"
-echo -e "${WHITE}Users will see their details when they connect:${NC}"
-echo -e "${WHITE}  👤 USERNAME • 📅 EXPIRE • ⏳ REMAINING (days+hrs)${NC}"
+echo -e "${WHITE}Users see their details when they connect:${NC}"
+echo -e "${WHITE}  👤 USERNAME • 📅 EXPIRE • ⏳ REMAINING (Xday + Yhr)${NC}"
 echo -e "${WHITE}  📊 LIMIT GB • 💾 USAGE GB • 🔗 CONNECTIONS${NC}"
+echo -e "${WHITE}  ⏰ Banner auto-refreshes every 5 minutes${NC}"
 echo ""
 echo -e "${CYAN}SLOWDNS CONFIG FOR CLIENT:${NC}"
 echo -e "${WHITE}  NS     : ${GREEN}$TDOMAIN${NC}"
