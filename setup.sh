@@ -1,6 +1,6 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════════╗
-#  ELITE-X SLOWDNS SCRIPT v3.6 - FALCON ULTRA C + SERVER MESSAGE
+#  ELITE-X SLOWDNS SCRIPT v3.6 - FALCON ULTRA C + DROPBEAR
 # ╚══════════════════════════════════════════════════════════════╝
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'
@@ -27,7 +27,7 @@ USER_MSG_DIR="/etc/elite-x/user_messages"
 show_banner() {
     clear
     echo -e "${PURPLE}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${YELLOW}${BOLD} ELITE-X SLOWDNS v3.6 - FALCON   ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${YELLOW}${BOLD} ELITE-X SLOWDNS v3.6 - FALCON + DROPBEAR ${PURPLE}║${NC}"
     echo -e "${PURPLE}╚══════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -66,7 +66,7 @@ EOF
     
     local current_conn=0
     current_conn=$(who | grep -wc "$username" 2>/dev/null || echo 0)
-    [ "$current_conn" -eq 0 ] && current_conn=$(ps aux 2>/dev/null | grep "sshd:" | grep "$username" | grep -v grep | grep -v "sshd:.*@notty" | wc -l)
+    [ "$current_conn" -eq 0 ] && current_conn=$(ps aux 2>/dev/null | grep "dropbear" | grep "$username" | grep -v grep | wc -l)
     current_conn=${current_conn:-0}
     
     local now_ts=$(date +%s)
@@ -116,69 +116,82 @@ EOF
 }
 
 # ═══════════════════════════════════════════════════════════
-# SSH CONFIGURATION WITH USER-SPECIFIC BANNERS (FIXED)
+# DROPBEAR CONFIGURATION WITH USER BANNERS (REPLACES OPENSSH)
 # ═══════════════════════════════════════════════════════════
+configure_dropbear_for_vpn() {
+    echo -e "${YELLOW}🔧 Installing & Configuring DROPBEAR for VPN + User Messages...${NC}"
+
+    # Stop and disable OpenSSH completely
+    systemctl stop sshd 2>/dev/null || systemctl stop ssh 2>/dev/null || true
+    systemctl disable sshd 2>/dev/null || systemctl disable ssh 2>/dev/null || true
+    apt-get remove --purge openssh-server -y 2>/dev/null || true
+
+    # Install Dropbear
+    apt-get install -y dropbear 2>/dev/null
+
+    # Configure Dropbear
+    cat > /etc/default/dropbear <<'DBCONF'
+# ELITE-X DROPBEAR Configuration
+NO_START=0
+DROPBEAR_PORT=22
+DROPBEAR_EXTRA_ARGS="-w -g -K 60 -I 600"
+DROPBEAR_BANNER="/etc/elite-x/dropbear_banner"
+DROPBEAR_RECEIVE_WINDOW=65536
+DBCONF
+
+    # Create global banner (updated per-user via motd trick)
+    cat > /etc/elite-x/dropbear_banner <<'BANNER'
+═════════════════════════════
+  ELITE-X SLOWDNS VPN
+  Powered by DROPBEAR
+═════════════════════════════
+BANNER
+    chmod 644 /etc/elite-x/dropbear_banner
+
+    # Create Dropbear systemd service (overrides default)
+    cat > /etc/systemd/system/dropbear-elite-x.service <<'DBSVC'
+[Unit]
+Description=ELITE-X Dropbear SSH Server
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=root
+EnvironmentFile=-/etc/default/dropbear
+ExecStart=/usr/sbin/dropbear -F -p 22 -w -g -K 60 -I 600 -b /etc/elite-x/dropbear_banner
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+[Install]
+WantedBy=multi-user.target
+DBSVC
+
+    # Per-user message via /etc/update-motd.d/ (shown after login)
+    mkdir -p /etc/update-motd.d
+    cat > /etc/update-motd.d/00-elite-x-user-msg <<'MOTD'
+#!/bin/bash
+USERNAME="${PAM_USER:-$(whoami)}"
+MSG_FILE="/etc/elite-x/user_messages/$USERNAME"
+if [ -f "$MSG_FILE" ]; then
+    cat "$MSG_FILE"
+fi
+MOTD
+    chmod +x /etc/update-motd.d/00-elite-x-user-msg
+
+    # Disable old dropbear service if exists, use our custom one
+    systemctl disable dropbear 2>/dev/null || true
+    systemctl stop dropbear 2>/dev/null || true
+
+    systemctl daemon-reload
+    systemctl enable dropbear-elite-x
+    systemctl start dropbear-elite-x
+
+    echo -e "${GREEN}✅ DROPBEAR configured and running on port 22${NC}"
+}
+
+# Alias for backward compat (called in run_installation)
 configure_ssh_for_vpn() {
-    echo -e "${YELLOW}🔧 Configuring SSH for VPN + User Messages...${NC}"
-    
-    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak 2>/dev/null || true
-    
-    # Remove old directives
-    sed -i '/^Banner/d' /etc/ssh/sshd_config 2>/dev/null
-    sed -i '/^Match User/d' /etc/ssh/sshd_config 2>/dev/null
-    sed -i '/Include \/etc\/ssh\/sshd_config.d\/\*\.conf/d' /etc/ssh/sshd_config 2>/dev/null
-    
-    # Base config
-    cat > /etc/ssh/sshd_config.d/elite-x-base.conf <<'SSHCONF'
-# ELITE-X VPN Base Configuration
-Port 22
-AddressFamily any
-ListenAddress 0.0.0.0
-ListenAddress ::
-
-PermitRootLogin yes
-PasswordAuthentication yes
-PubkeyAuthentication yes
-ChallengeResponseAuthentication no
-UsePAM yes
-
-AllowTcpForwarding yes
-AllowAgentForwarding yes
-GatewayPorts yes
-PermitTunnel yes
-PermitOpen any
-
-TCPKeepAlive yes
-ClientAliveInterval 60
-ClientAliveCountMax 3
-MaxStartups 100:30:200
-MaxSessions 100
-
-UseDNS no
-LogLevel VERBOSE
-SSHCONF
-
-    # Create dynamic user banner config
-    cat > /etc/ssh/sshd_config.d/elite-x-users.conf <<'SSHCONF2'
-# ELITE-X Dynamic User Banners - Managed by system
-SSHCONF2
-
-    # Add all existing users
-    if [ -d "$USER_DB" ]; then
-        for user_file in "$USER_DB"/*; do
-            [ -f "$user_file" ] || continue
-            local username=$(basename "$user_file")
-            local msg_file=$(force_user_message "$username")
-            echo "Match User $username" >> /etc/ssh/sshd_config.d/elite-x-users.conf
-            echo "    Banner $msg_file" >> /etc/ssh/sshd_config.d/elite-x-users.conf
-        done
-    fi
-    
-    echo "Include /etc/ssh/sshd_config.d/*.conf" >> /etc/ssh/sshd_config
-    
-    systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
-    
-    echo -e "${GREEN}✅ SSH configured with User Messages${NC}"
+    configure_dropbear_for_vpn
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -225,7 +238,7 @@ usage_gb=$(echo "scale=2; $usage_bytes / 1073741824" | bc 2>/dev/null || echo "0
 
 current_conn=0
 current_conn=$(who | grep -wc "$USERNAME" 2>/dev/null || echo 0)
-[ "$current_conn" -eq 0 ] && current_conn=$(ps aux 2>/dev/null | grep "sshd:" | grep "$USERNAME" | grep -v grep | grep -v "sshd:.*@notty" | wc -l)
+[ "$current_conn" -eq 0 ] && current_conn=$(ps aux 2>/dev/null | grep "dropbear" | grep "$USERNAME" | grep -v grep | wc -l)
 current_conn=${current_conn:-0}
 
 now_ts=$(date +%s)
@@ -277,25 +290,23 @@ EOF
 
 chmod 644 "$MSG_FILE"
 
-# Update SSH config for this user
-sed -i "/Match User $USERNAME/,/Banner/d" /etc/ssh/sshd_config.d/elite-x-users.conf 2>/dev/null
-echo "Match User $USERNAME" >> /etc/ssh/sshd_config.d/elite-x-users.conf
-echo "    Banner $MSG_FILE" >> /etc/ssh/sshd_config.d/elite-x-users.conf
-
-# Reload SSH without killing active connections
-systemctl reload sshd 2>/dev/null || kill -HUP $(cat /var/run/sshd.pid 2>/dev/null) 2>/dev/null || true
-
-echo "$USERNAME: message updated" >> /var/log/elite-x-user-msgs.log 2>/dev/null
+# Message file updated - Dropbear shows it via motd on next login
+# (No SSH config reload needed - Dropbear reads /etc/elite-x/user_messages/ via motd)
+echo "$USERNAME: dropbear message updated" >> /var/log/elite-x-user-msgs.log 2>/dev/null
 FORCE
     chmod +x /usr/local/bin/elite-x-force-user-message
     
-    # Remove old PAM entries
+    # Remove old PAM entries for openssh (not needed for dropbear)
     sed -i '/elite-x-update-user-msg/d' /etc/pam.d/sshd 2>/dev/null
-    
-    # Add PAM session hook
-    echo "session optional pam_exec.so seteuid /usr/local/bin/elite-x-update-user-msg" >> /etc/pam.d/sshd
-    
-    echo -e "${GREEN}✅ PAM configured - user message updates on each login${NC}"
+    sed -i '/elite-x-update-user-msg/d' /etc/pam.d/dropbear 2>/dev/null
+
+    # Add PAM session hook for dropbear
+    if [ -f /etc/pam.d/dropbear ]; then
+        grep -q "elite-x-update-user-msg" /etc/pam.d/dropbear || \
+            echo "session optional pam_exec.so seteuid /usr/local/bin/elite-x-update-user-msg" >> /etc/pam.d/dropbear
+    fi
+
+    echo -e "${GREEN}✅ PAM configured for DROPBEAR - user message updates on each login${NC}"
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -593,7 +604,7 @@ long long get_process_io(int pid) {
 
 int is_numeric(const char *str) { for (; *str; str++) if (!isdigit(*str)) return 0; return 1; }
 
-int get_sshd_pids(const char *username, int *pids, int max_pids) {
+int get_dropbear_pids(const char *username, int *pids, int max_pids) {
     int count = 0;
     DIR *proc = opendir("/proc");
     if (!proc) return 0;
@@ -609,7 +620,7 @@ int get_sshd_pids(const char *username, int *pids, int max_pids) {
         fgets(comm, sizeof(comm), f);
         fclose(f);
         comm[strcspn(comm, "\n")] = 0;
-        if (strcmp(comm, "sshd") == 0) {
+        if (strcmp(comm, "dropbear") == 0) {
             char status_path[256];
             snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
             FILE *sf = fopen(status_path, "r");
@@ -664,7 +675,7 @@ int main() {
             if (bandwidth_gb <= 0) continue;
             
             int pids[100];
-            int pid_count = get_sshd_pids(user_entry->d_name, pids, 100);
+            int pid_count = get_dropbear_pids(user_entry->d_name, pids, 100);
             if (pid_count == 0) {
                 char cmd[512];
                 snprintf(cmd, sizeof(cmd), "rm -f %s/%s__*.last 2>/dev/null", PID_DIR, user_entry->d_name);
@@ -779,7 +790,7 @@ int get_connection_count(const char *username) {
         fgets(comm, sizeof(comm), f);
         fclose(f);
         comm[strcspn(comm, "\n")] = 0;
-        if (strcmp(comm, "sshd") == 0) {
+        if (strcmp(comm, "dropbear") == 0) {
             char status_path[256];
             snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
             FILE *sf = fopen(status_path, "r");
@@ -888,7 +899,7 @@ CEOF
         cat > /etc/systemd/system/elite-x-connmon.service <<EOF
 [Unit]
 Description=ELITE-X C Connection Monitor (Auto-Ban + Auto-Delete)
-After=network.target ssh.service
+After=network.target dropbear-elite-x.service
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/elite-x-connmon-c
@@ -1291,7 +1302,7 @@ mkdir -p "$UD" "$USAGE_DB" "$DD" "$BD" "$CONN_DB" "$BW_DIR" "$PID_DIR"
 get_connection_count() {
     local username="$1"; local count=0
     who | grep -qw "$username" 2>/dev/null && count=$(who | grep -wc "$username" 2>/dev/null)
-    [ "$count" -eq 0 ] && count=$(ps aux | grep "sshd:" | grep "$username" | grep -v grep | grep -v "sshd:.*@notty" | wc -l)
+    [ "$count" -eq 0 ] && count=$(ps aux | grep "dropbear" | grep "$username" | grep -v grep | wc -l)
     echo ${count:-0}
 }
 
@@ -1583,7 +1594,7 @@ settings_menu() {
         echo -e "${PURPLE}║${WHITE}  [4] Edit Msg     [5] Reset Msg       [6] Traffic Stats${NC}"
         echo -e "${PURPLE}║${WHITE}  [7] Reset All BW [8] Toggle Auto-Ban ($ABSTATUS)${WHITE}${NC}"
         echo -e "${PURPLE}║${WHITE}  [9] Restart All  [10] Reboot VPS      [11] Uninstall${NC}"
-        echo -e "${PURPLE}║${WHITE}  [12] Recompile C   [13] Fix VPN/SSH    [14] Refresh Msg All${NC}"
+        echo -e "${PURPLE}║${WHITE}  [12] Recompile C   [13] Fix VPN/DROPBEAR [14] Refresh Msg All${NC}"
         echo -e "${PURPLE}║${WHITE}  [15] Test Msg     [0] Back${NC}"
         echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════╝${NC}"
         read -p "$(echo -e $GREEN"Option: "$NC)" ch
@@ -1619,8 +1630,7 @@ settings_menu() {
                 read -p "Username: " uname
                 if [ -f "/etc/elite-x/user_messages/$uname" ]; then
                     nano "/etc/elite-x/user_messages/$uname"
-                    systemctl reload sshd
-                    echo -e "${GREEN}✅ Message updated for $uname${NC}"
+                    echo -e "${GREEN}✅ Message updated for $uname (active on next DROPBEAR login)${NC}"
                 else
                     echo -e "${RED}User not found or no message file!${NC}"
                 fi
@@ -1634,8 +1644,7 @@ settings_menu() {
                 else
                     /usr/local/bin/elite-x-force-user-message "$uname" 2>/dev/null
                 fi
-                systemctl reload sshd
-                echo -e "${GREEN}✅ Messages reset${NC}"
+                echo -e "${GREEN}✅ Messages reset (active on next DROPBEAR login)${NC}"
                 read -p "Press Enter..." ;;
             6) 
                 iface=$(ip route | grep default | awk '{print $5}' | head -1)
@@ -1655,7 +1664,7 @@ settings_menu() {
                 echo -e "${GREEN}✅ Toggled${NC}"
                 read -p "Press Enter..." ;;
             9) 
-                for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt elite-x-logcleaner sshd; do
+                for s in dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-datausage elite-x-connmon elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt elite-x-logcleaner dropbear-elite-x; do
                     systemctl restart "$s" 2>/dev/null || true
                 done
                 echo -e "${GREEN}✅ All services restarted${NC}"
@@ -1673,10 +1682,12 @@ settings_menu() {
                     rm -rf /etc/systemd/system/{dnstt-elite-x*,elite-x*}
                     rm -rf /etc/dnstt /etc/elite-x /var/run/elite-x
                     rm -f /usr/local/bin/{dnstt-*,elite-x*}
-                    rm -f /etc/ssh/sshd_config.d/elite-x-*.conf
-                    sed -i '/^Match User/,/Banner/d' /etc/ssh/sshd_config 2>/dev/null
-                    sed -i '/elite-x-update-user-msg/d' /etc/pam.d/sshd
-                    systemctl restart sshd 2>/dev/null
+                    systemctl stop dropbear-elite-x 2>/dev/null || true
+                    systemctl disable dropbear-elite-x 2>/dev/null || true
+                    rm -f /etc/systemd/system/dropbear-elite-x.service
+                    rm -f /etc/update-motd.d/00-elite-x-user-msg
+                    rm -f /etc/elite-x/dropbear_banner
+                    sed -i '/elite-x-update-user-msg/d' /etc/pam.d/dropbear 2>/dev/null
                     rm -f /etc/profile.d/elite-x-dashboard.sh
                     sed -i '/elite-x/d' ~/.bashrc 2>/dev/null
                     rm -f /etc/sysctl.d/99-elite-x-vpn.conf
@@ -1705,17 +1716,16 @@ settings_menu() {
                 read -p "Press Enter..." ;;
             13)
                 echo -e "${YELLOW}Fixing VPN/SSH configuration...${NC}"
-                configure_ssh_for_vpn
-                systemctl restart dnstt-elite-x dnstt-elite-x-proxy sshd 2>/dev/null
-                echo -e "${GREEN}✅ VPN/SSH fixed${NC}"
+                configure_dropbear_for_vpn
+                systemctl restart dnstt-elite-x dnstt-elite-x-proxy dropbear-elite-x 2>/dev/null
+                echo -e "${GREEN}✅ VPN/DROPBEAR fixed${NC}"
                 read -p "Press Enter..." ;;
             14)
                 echo -e "${YELLOW}Refreshing messages for all users...${NC}"
                 for user in "$UD"/*; do
                     [ -f "$user" ] && /usr/local/bin/elite-x-force-user-message "$(basename "$user")" 2>/dev/null
                 done
-                systemctl reload sshd
-                echo -e "${GREEN}✅ Messages refreshed!${NC}"
+                echo -e "${GREEN}✅ Messages refreshed! (DROPBEAR - active on next login)${NC}"
                 read -p "Press Enter..." ;;
             15)
                 read -p "Test message for which user? " uname
@@ -1837,17 +1847,17 @@ run_installation() {
     rm -rf /etc/systemd/system/{dnstt-elite-x*,elite-x*,3proxy-elite*} 2>/dev/null
     rm -rf /etc/dnstt /etc/elite-x /var/run/elite-x 2>/dev/null
     rm -f /usr/local/bin/{dnstt-*,elite-x*,3proxy} 2>/dev/null
-    rm -f /etc/ssh/sshd_config.d/elite-x-*.conf 2>/dev/null
     rm -f /etc/sysctl.d/99-elite-x-vpn.conf 2>/dev/null
-    sed -i '/^Match User/,/Banner/d' /etc/ssh/sshd_config 2>/dev/null
-    sed -i '/Include \/etc\/ssh\/sshd_config.d\/\*\.conf/d' /etc/ssh/sshd_config 2>/dev/null
-    sed -i '/elite-x-update-user-msg/d' /etc/pam.d/sshd 2>/dev/null
-    systemctl restart sshd 2>/dev/null || true
+    # Stop any previous dropbear-elite-x service
+    systemctl stop dropbear-elite-x 2>/dev/null || true
+    systemctl disable dropbear-elite-x 2>/dev/null || true
+    rm -f /etc/systemd/system/dropbear-elite-x.service 2>/dev/null
+    rm -f /etc/update-motd.d/00-elite-x-user-msg 2>/dev/null
+    sed -i '/elite-x-update-user-msg/d' /etc/pam.d/dropbear 2>/dev/null || true
     sleep 2
 
     # Create directories
     mkdir -p /etc/elite-x/{users,traffic,deleted,data_usage,connections,banned,traffic_stats,bandwidth/pidtrack,user_messages}
-    mkdir -p /etc/ssh/sshd_config.d
     mkdir -p /var/run/elite-x/bandwidth
     echo "$TDOMAIN" > /etc/elite-x/subdomain
     echo "$SEL_LOC" > /etc/elite-x/location
@@ -1868,7 +1878,7 @@ run_installation() {
     # Install dependencies
     echo -e "${YELLOW}📦 Installing dependencies...${NC}"
     apt update -y
-    apt install -y curl jq iptables ethtool dnsutils net-tools iproute2 bc build-essential git gcc make 2>/dev/null
+    apt install -y curl jq iptables ethtool dnsutils net-tools iproute2 bc build-essential git gcc make dropbear 2>/dev/null
 
     # Setup C compiler
     echo -e "${YELLOW}🔧 Setting up C compiler environment...${NC}"
@@ -1891,7 +1901,7 @@ run_installation() {
     # Create DNSTT service
     cat > /etc/systemd/system/dnstt-elite-x.service <<EOF
 [Unit]
-Description=ELITE-X DNSTT Server v3.6
+Description=ELITE-X DNSTT Server v3.6 (Dropbear Backend)
 After=network-online.target
 Wants=network-online.target
 [Service]
@@ -1981,8 +1991,8 @@ alias adduser='elite-x-user add'
 alias users='elite-x-user list'
 alias setbw='elite-x-user setbw'
 alias boost='systemctl restart elite-x-netbooster elite-x-dnscache elite-x-ramcleaner elite-x-irqopt'
-alias fixvpn='systemctl restart dnstt-elite-x dnstt-elite-x-proxy sshd && echo "VPN Fixed!"'
-alias refreshmsg='for u in /etc/elite-x/users/*; do [ -f "$u" ] && /usr/local/bin/elite-x-force-user-message "$(basename "$u")"; done && systemctl reload sshd && echo "✅ Messages refreshed!"'
+alias fixvpn='systemctl restart dnstt-elite-x dnstt-elite-x-proxy dropbear-elite-x && echo "VPN Fixed! (DROPBEAR)"'
+alias refreshmsg='for u in /etc/elite-x/users/*; do [ -f "$u" ] && /usr/local/bin/elite-x-force-user-message "$(basename "$u")"; done && echo "✅ Messages refreshed! (DROPBEAR - active on next login)"'
 alias testmsg='read -p "Username: " u; cat /etc/elite-x/user_messages/$u 2>/dev/null || echo "No message"'
 EOF
 
@@ -2001,7 +2011,7 @@ EOF
     echo -e "${GREEN}║${WHITE}  Domain     :${CYAN} $TDOMAIN${NC}"
     echo -e "${GREEN}║${WHITE}  Location   :${CYAN} $SEL_LOC (MTU: $MTU)${NC}"
     echo -e "${GREEN}║${WHITE}  IP         :${CYAN} $IP${NC}"
-    echo -e "${GREEN}║${WHITE}  Version    :${CYAN} v3.6 Falcon Ultra ${NC}"
+    echo -e "${GREEN}║${WHITE}  Version    :${CYAN} v3.6 Falcon Ultra (DROPBEAR)${NC}"
     echo -e "${GREEN}║${WHITE}  Public Key :${CYAN} $STATIC_PUBLIC_KEY${NC}"
     echo -e "${GREEN}╠═════════════════════════════════════════════════════════════╣${NC}"
 
@@ -2018,7 +2028,7 @@ EOF
 
     check_svc "DNSTT Server     " "dnstt-elite-x"
     check_svc "C EDNS Proxy     " "dnstt-elite-x-proxy"
-    check_svc "SSH Server       " "sshd"
+    check_svc "DROPBEAR Server  " "dropbear-elite-x"
     check_svc "C Bandwidth Mon  " "elite-x-bandwidth"
     check_svc "C Conn Monitor   " "elite-x-connmon"
     check_svc "C Net Booster    " "elite-x-netbooster"
