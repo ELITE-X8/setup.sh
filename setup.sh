@@ -43,7 +43,7 @@ show_banner() {
     echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${MAGENTA}║${YELLOW}${BOLD}   ELITE-X SLOWDNS VPN v6.0 - FALCON ULTRA MAX BOOST     ${MAGENTA}║${NC}"
     echo -e "${MAGENTA}║${CYAN}   SlowDNS Multi-Protocol | 3Proxy | SOCKS5 | UDP+TCP Turbo  ${MAGENTA}║${NC}"
-    echo -e "${MAGENTA}║${GREEN}     Speed 30Mbps+ | BBR3 | Zero Ping | MTU 3000 MAX       ${MAGENTA}║${NC}"
+    echo -e "${MAGENTA}║${GREEN}     Speed 30Mbps+ | BBR3 | Zero Ping | MTU 2000 MAX       ${MAGENTA}║${NC}"
     echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -558,7 +558,7 @@ create_c_edns_proxy() {
 #define BUFFER_SIZE        65536
 #define DNS_PORT           53
 #define BACKEND_PORT       5300
-#define MAX_EDNS_SIZE      3000
+#define MAX_EDNS_SIZE      2000
 #define MIN_EDNS_SIZE      512
 #define THREAD_POOL_SIZE   64
 #define QUEUE_SIZE         65536
@@ -2543,7 +2543,7 @@ show_dashboard() {
     IP=$(cat /etc/elite-x/cached_ip 2>/dev/null || echo "Unknown")
     SUB=$(cat /etc/elite-x/subdomain 2>/dev/null || echo "Not set")
     LOC=$(cat /etc/elite-x/location 2>/dev/null || echo "South Africa")
-    MTU=$(cat /etc/elite-x/mtu 2>/dev/null || echo "3000")
+    MTU=$(cat /etc/elite-x/mtu 2>/dev/null || echo "2000")
     RAM=$(free -h | awk '/^Mem:/{print $3"/"$2}')
     CPU=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1 2>/dev/null || echo "?")
 
@@ -2602,6 +2602,7 @@ settings_menu() {
         echo -e "${CYAN}║${WHITE}  [9]  Show 3Proxy Users${NC}"
         echo -e "${CYAN}║${RED}  [10] ⚠️  UNINSTALL ELITE-X${NC}"
         echo -e "${CYAN}║${YELLOW}  [11] 🔄 Reboot Server${NC}"
+        echo -e "${CYAN}║${WHITE}  [12] 🔧 Change MTU${NC}"
         echo -e "${CYAN}║${WHITE}  [0]  Back${NC}"
         echo -e "${CYAN}╚════════════════════════════════════════════════════╝${NC}"
         read -p "$(echo -e $GREEN"Option: "$NC)" ch
@@ -2725,6 +2726,34 @@ settings_menu() {
                 fi
                 read -p "Press Enter..."
                 ;;
+            12)
+                clear
+                echo -e "${CYAN}╔════════════════════════════════════════════════════╗${NC}"
+                echo -e "${CYAN}║${YELLOW}           🔧 CHANGE MTU                    ${CYAN}║${NC}"
+                echo -e "${CYAN}╠════════════════════════════════════════════════════╣${NC}"
+                CURRENT_MTU=$(cat /etc/elite-x/mtu 2>/dev/null || echo "2000")
+                echo -e "${CYAN}║${WHITE}  Current MTU  : ${GREEN}${CURRENT_MTU}${NC}"
+                echo -e "${CYAN}║${WHITE}  Recommended  : ${CYAN}1800 (stable) | 2000 (boost)${NC}"
+                echo -e "${CYAN}╚════════════════════════════════════════════════════╝${NC}"
+                read -p "$(echo -e $GREEN"New MTU (100-3000) [Enter=keep $CURRENT_MTU]: "$NC)" NEW_MTU
+                if [ -z "$NEW_MTU" ]; then
+                    echo -e "${YELLOW}MTU unchanged: ${CURRENT_MTU}${NC}"
+                elif [[ ! "$NEW_MTU" =~ ^[0-9]+$ ]] || [ "$NEW_MTU" -lt 100 ] 2>/dev/null || [ "$NEW_MTU" -gt 3000 ] 2>/dev/null; then
+                    echo -e "${RED}❌ Invalid MTU! Must be 100-3000.${NC}"
+                else
+                    echo "$NEW_MTU" > /etc/elite-x/mtu
+                    TDOMAIN=$(cat /etc/elite-x/subdomain 2>/dev/null || echo "")
+                    if [ -n "$TDOMAIN" ]; then
+                        sed -i "s|-mtu [0-9]*|-mtu $NEW_MTU|" /etc/systemd/system/dnstt-elite-x.service 2>/dev/null
+                        systemctl daemon-reload 2>/dev/null
+                        systemctl restart dnstt-elite-x 2>/dev/null
+                        echo -e "${GREEN}✅ MTU changed to ${NEW_MTU} - DNSTT restarted${NC}"
+                    else
+                        echo -e "${GREEN}✅ MTU saved: ${NEW_MTU}${NC}"
+                    fi
+                fi
+                read -p "Press Enter..."
+                ;;
             0) return ;;
         esac
     done
@@ -2830,7 +2859,7 @@ run_installation() {
     read -p "$(echo -e $GREEN"Nameserver (e.g. ns1.yourdomain.com): "$NC)" TDOMAIN
 
     echo -e "${YELLOW}Select VPS location:${NC}"
-    echo -e "  [1] South Africa (MTU 3000) ⚡ ULTRA BOOST"
+    echo -e "  [1] South Africa (MTU 2000) ⚡ ULTRA BOOST"
     echo -e "  [2] USA          (MTU 1500)"
     echo -e "  [3] Europe       (MTU 1500)"
     echo -e "  [4] Asia         (MTU 1400)"
@@ -2843,10 +2872,10 @@ run_installation() {
         4) SEL_LOC="Asia";         MTU=1400 ;;
         5) SEL_LOC="Custom"
            read -p "Enter MTU (100-3000): " MTU
-           [[ ! "$MTU" =~ ^[0-9]+$ ]] && MTU=3000
+           [[ ! "$MTU" =~ ^[0-9]+$ ]] && MTU=2000
            [ "$MTU" -lt 100  ] 2>/dev/null && MTU=100
            [ "$MTU" -gt 3000 ] 2>/dev/null && MTU=3000 ;;
-        *) SEL_LOC="South Africa"; MTU=3000 ;;
+        *) SEL_LOC="South Africa"; MTU=2000 ;;
     esac
 
     # ── Cleanup previous installation ─────────────────────
@@ -3078,7 +3107,7 @@ EOF
     echo -e "${GREEN}║${WHITE}  📊 Accurate connection count (ss+who+proc)${NC}"
     echo -e "${GREEN}║${WHITE}  ⚡ C EDNS Proxy: 64 workers + 32MB buffers${NC}"
     echo -e "${GREEN}║${WHITE}  🔋 BBR3 + FQ qdisc + RPS/XPS all CPUs${NC}"
-    echo -e "${GREEN}║${WHITE}  📦 MTU 3000 MAX - BUFFER 65536 - UDP 32MB${NC}"
+    echo -e "${GREEN}║${WHITE}  📦 MTU 2000 MAX - BUFFER 65536 - UDP 32MB${NC}"
     echo -e "${GREEN}╠══════════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${GREEN}║${CYAN}  SLOWDNS CONFIG:${NC}"
     echo -e "${GREEN}║${WHITE}  NS     : ${CYAN}$TDOMAIN${NC}"
