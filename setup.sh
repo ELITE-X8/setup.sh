@@ -43,7 +43,7 @@ show_banner() {
     echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${MAGENTA}║${YELLOW}${BOLD}   ELITE-X SLOWDNS VPN v6.0 - FALCON ULTRA MAX BOOST     ${MAGENTA}║${NC}"
     echo -e "${MAGENTA}║${CYAN}   SlowDNS Multi-Protocol | 3Proxy | SOCKS5 | UDP+TCP Turbo  ${MAGENTA}║${NC}"
-    echo -e "${MAGENTA}║${GREEN}     Speed 30Mbps+ | BBR3 | Zero Ping | MTU 2000 MAX       ${MAGENTA}║${NC}"
+    echo -e "${MAGENTA}║${GREEN}     Speed 30Mbps+ | BBR3 | Zero Ping | MTU 1802 MAX       ${MAGENTA}║${NC}"
     echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -1371,7 +1371,7 @@ EOF
 # C: BANDWIDTH MONITOR (Enhanced)
 # ═══════════════════════════════════════════════════════════
 create_c_bandwidth_monitor() {
-    echo -e "${YELLOW}📝 Compiling C Bandwidth Monitor v5.0 (Amokhan io/pidtrack method)...${NC}"
+    echo -e "${YELLOW}📝 Compiling C Bandwidth Monitor v5.0${NC}"
     cat > /tmp/bw_monitor.c <<'CEOF'
 #include <stdio.h>
 #include <stdlib.h>
@@ -2543,7 +2543,7 @@ show_dashboard() {
     IP=$(cat /etc/elite-x/cached_ip 2>/dev/null || echo "Unknown")
     SUB=$(cat /etc/elite-x/subdomain 2>/dev/null || echo "Not set")
     LOC=$(cat /etc/elite-x/location 2>/dev/null || echo "South Africa")
-    MTU=$(cat /etc/elite-x/mtu 2>/dev/null || echo "2000")
+    MTU=$(cat /etc/elite-x/mtu 2>/dev/null || echo "1802")
     RAM=$(free -h | awk '/^Mem:/{print $3"/"$2}')
     CPU=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1 2>/dev/null || echo "?")
 
@@ -2731,9 +2731,9 @@ settings_menu() {
                 echo -e "${CYAN}╔════════════════════════════════════════════════════╗${NC}"
                 echo -e "${CYAN}║${YELLOW}           🔧 CHANGE MTU                    ${CYAN}║${NC}"
                 echo -e "${CYAN}╠════════════════════════════════════════════════════╣${NC}"
-                CURRENT_MTU=$(cat /etc/elite-x/mtu 2>/dev/null || echo "2000")
+                CURRENT_MTU=$(cat /etc/elite-x/mtu 2>/dev/null || echo "1802")
                 echo -e "${CYAN}║${WHITE}  Current MTU  : ${GREEN}${CURRENT_MTU}${NC}"
-                echo -e "${CYAN}║${WHITE}  Recommended  : ${CYAN}1800 (stable) | 2000 (boost)${NC}"
+                echo -e "${CYAN}║${WHITE}  Recommended  : ${CYAN}1800 (stable) | 1802 (boost)${NC}"
                 echo -e "${CYAN}╚════════════════════════════════════════════════════╝${NC}"
                 read -p "$(echo -e $GREEN"New MTU (100-3000) [Enter=keep $CURRENT_MTU]: "$NC)" NEW_MTU
                 if [ -z "$NEW_MTU" ]; then
@@ -2859,7 +2859,7 @@ run_installation() {
     read -p "$(echo -e $GREEN"Nameserver (e.g. ns1.yourdomain.com): "$NC)" TDOMAIN
 
     echo -e "${YELLOW}Select VPS location:${NC}"
-    echo -e "  [1] South Africa (MTU 1802) ⚡ ULTRA BOOST"
+    echo -e "  [1] South Africa (MTU 1802) "
     echo -e "  [2] USA          (MTU 1500)"
     echo -e "  [3] Europe       (MTU 1500)"
     echo -e "  [4] Asia         (MTU 1400)"
@@ -2872,9 +2872,9 @@ run_installation() {
         4) SEL_LOC="Asia";         MTU=1400 ;;
         5) SEL_LOC="Custom"
            read -p "Enter MTU (100-3000): " MTU
-           [[ ! "$MTU" =~ ^[0-9]+$ ]] && MTU=2000
+           [[ ! "$MTU" =~ ^[0-9]+$ ]] && MTU=1802
            [ "$MTU" -lt 100  ] 2>/dev/null && MTU=100
-           [ "$MTU" -gt 3000 ] 2>/dev/null && MTU=3000 ;;
+           [ "$MTU" -gt 3000 ] 2>/dev/null && MTU=1802 ;;
         *) SEL_LOC="South Africa"; MTU=1802 ;;
     esac
 
@@ -3107,7 +3107,7 @@ EOF
     echo -e "${GREEN}║${WHITE}  📊 Accurate connection count (ss+who+proc)${NC}"
     echo -e "${GREEN}║${WHITE}  ⚡ C EDNS Proxy: 64 workers + 32MB buffers${NC}"
     echo -e "${GREEN}║${WHITE}  🔋 BBR3 + FQ qdisc + RPS/XPS all CPUs${NC}"
-    echo -e "${GREEN}║${WHITE}  📦 MTU 2000 MAX - BUFFER 65536 - UDP 32MB${NC}"
+    echo -e "${GREEN}║${WHITE}  📦 MTU 1802 MAX ${NC}"
     echo -e "${GREEN}╠══════════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${GREEN}║${CYAN}  SLOWDNS CONFIG:${NC}"
     echo -e "${GREEN}║${WHITE}  NS     : ${CYAN}$TDOMAIN${NC}"
