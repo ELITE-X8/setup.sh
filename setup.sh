@@ -115,7 +115,7 @@ force_user_message() {
     cat <<EOF > "$msg_file"
 <div style="background-color: #000000; color: #ffffff; font-family: 'Courier New', Courier, monospace; padding: 20px; border-radius: 5px; display: inline-block; white-space: pre; line-height: 1.4;">
 <span style="color: #ff00ff; font-weight: bold;">═══════════════════════════════════</span>
-<span style="color: #ffff00; font-weight: bold;">▌</span><span style="color: #00ffff; font-weight: bold;"> ELITE-X SLOWDNS VPN v5.0         </span><span style="color: #ffff00; font-weight: bold;">▐</span>
+<span style="color: #ffff00; font-weight: bold;">▌</span><span style="color: #00ffff; font-weight: bold;"> <cente>ELITE-X SLOWDNS VPN v5.0 </center>   </span><span style="color: #ffff00; font-weight: bold;">▐</span>
 <span style="color: #ff00ff; font-weight: bold;">═══════════════════════════════════</span>
 <span style="color: #ffff00; font-weight: bold;"> USERNAME  </span>: <span style="color: #00ff00; font-weight: bold;">$username</span>
 <span style="color: #0000ff; font-weight: bold;">───────────────────────────────────</span>
@@ -277,7 +277,7 @@ fi
     cat <<EOF > "$MSG_FILE"
 <div style="background-color: #000000; color: #ffffff; font-family: 'Courier New', Courier, monospace; padding: 20px; border-radius: 5px; display: inline-block; white-space: pre; line-height: 1.4;">
 <span style="color: #ff00ff; font-weight: bold;">═══════════════════════════════════</span>
-<span style="color: #ffff00; font-weight: bold;">▌</span><span style="color: #00ffff; font-weight: bold;"> ELITE-X SLOWDNS VPN v5.0         </span><span style="color: #ffff00; font-weight: bold;">▐</span>
+<span style="color: #ffff00; font-weight: bold;">▌</span><span style="color: #00ffff; font-weight: bold;"> <cente>ELITE-X SLOWDNS VPN v5.0 </center>  </span><span style="color: #ffff00; font-weight: bold;">▐</span>
 <span style="color: #ff00ff; font-weight: bold;">═══════════════════════════════════</span>
 <span style="color: #ffff00; font-weight: bold;"> USERNAME  </span>: <span style="color: #00ff00; font-weight: bold;">$USERNAME</span>
 <span style="color: #0000ff; font-weight: bold;">───────────────────────────────────</span>
