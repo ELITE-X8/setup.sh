@@ -41,9 +41,9 @@ PORT_DNSTT_SOCKS5=1082
 show_banner() {
     clear
     echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${MAGENTA}║${YELLOW}${BOLD}   ELITE-X SLOWDNS VPN v5.0 - FALCON ULTRA MAX BOOST     ${MAGENTA}║${NC}"
+    echo -e "${MAGENTA}║${YELLOW}${BOLD}   ELITE-X SLOWDNS VPN v6.0 - FALCON ULTRA MAX BOOST     ${MAGENTA}║${NC}"
     echo -e "${MAGENTA}║${CYAN}   SlowDNS Multi-Protocol | 3Proxy | SOCKS5 | UDP+TCP Turbo  ${MAGENTA}║${NC}"
-    echo -e "${MAGENTA}║${GREEN}        Speed 30Mbps+ | BBR3 | Zero Ping | Multi-Port        ${MAGENTA}║${NC}"
+    echo -e "${MAGENTA}║${GREEN}     Speed 30Mbps+ | BBR3 | Zero Ping | MTU 3000 MAX       ${MAGENTA}║${NC}"
     echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -333,18 +333,18 @@ net.ipv4.conf.default.rp_filter=0
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 
-net.core.rmem_max=268435456
-net.core.wmem_max=268435456
+net.core.rmem_max=536870912
+net.core.wmem_max=536870912
 net.core.rmem_default=524288
 net.core.wmem_default=524288
-net.ipv4.tcp_rmem=4096 262144 268435456
-net.ipv4.tcp_wmem=4096 131072 268435456
+net.ipv4.tcp_rmem=4096 262144 536870912
+net.ipv4.tcp_wmem=4096 131072 536870912
 net.ipv4.tcp_mem=786432 1048576 26777216
 
-net.core.optmem_max=65536
-net.ipv4.udp_mem=102400 873800 16777216
-net.ipv4.udp_rmem_min=65536
-net.ipv4.udp_wmem_min=65536
+net.core.optmem_max=131072
+net.ipv4.udp_mem=204800 1747600 33554432
+net.ipv4.udp_rmem_min=131072
+net.ipv4.udp_wmem_min=131072
 
 net.ipv4.tcp_sack=1
 net.ipv4.tcp_dsack=1
@@ -555,10 +555,10 @@ create_c_edns_proxy() {
 #include <fcntl.h>
 #include <sys/resource.h>
 
-#define BUFFER_SIZE        8192
+#define BUFFER_SIZE        65536
 #define DNS_PORT           53
 #define BACKEND_PORT       5300
-#define MAX_EDNS_SIZE      4096
+#define MAX_EDNS_SIZE      3000
 #define MIN_EDNS_SIZE      512
 #define THREAD_POOL_SIZE   64
 #define QUEUE_SIZE         65536
@@ -675,7 +675,7 @@ static void *worker_thread(void *arg) {
         struct timeval tv = {3, 0};
         setsockopt(bsock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         setsockopt(bsock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-        int sb = 4*1024*1024;
+        int sb = 32*1024*1024;
         setsockopt(bsock, SOL_SOCKET, SO_RCVBUF, &sb, sizeof(sb));
         setsockopt(bsock, SOL_SOCKET, SO_SNDBUF, &sb, sizeof(sb));
 
@@ -1273,15 +1273,15 @@ static void sysctl_set(const char *key, const char *val) {
 static void boost_network(void) {
     sysctl_set("net.core.default_qdisc",              "fq\n");
     sysctl_set("net.ipv4.tcp_congestion_control",     "bbr\n");
-    sysctl_set("net.core.rmem_max",                   "268435456\n");
-    sysctl_set("net.core.wmem_max",                   "268435456\n");
+    sysctl_set("net.core.rmem_max",                   "536870912\n");
+    sysctl_set("net.core.wmem_max",                   "536870912\n");
     sysctl_set("net.core.rmem_default",               "524288\n");
     sysctl_set("net.core.wmem_default",               "524288\n");
     sysctl_set("net.ipv4.tcp_rmem",                   "4096 262144 268435456\n");
     sysctl_set("net.ipv4.tcp_wmem",                   "4096 131072 268435456\n");
     sysctl_set("net.ipv4.udp_rmem_min",               "65536\n");
     sysctl_set("net.ipv4.udp_wmem_min",               "65536\n");
-    sysctl_set("net.ipv4.udp_mem",                    "102400 873800 16777216\n");
+    sysctl_set("net.ipv4.udp_mem",                    "204800 1747600 33554432\n");
     sysctl_set("net.ipv4.tcp_fastopen",               "3\n");
     sysctl_set("net.ipv4.tcp_slow_start_after_idle",  "0\n");
     sysctl_set("net.ipv4.tcp_sack",                   "1\n");
@@ -1782,10 +1782,10 @@ void signal_handler(int sig) { running = 0; }
 static void apply(void) {
     system("sysctl -w net.core.default_qdisc=fq >/dev/null 2>&1");
     system("sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1");
-    system("sysctl -w net.core.rmem_max=268435456 >/dev/null 2>&1");
-    system("sysctl -w net.core.wmem_max=268435456 >/dev/null 2>&1");
-    system("sysctl -w net.ipv4.tcp_rmem='4096 262144 268435456' >/dev/null 2>&1");
-    system("sysctl -w net.ipv4.tcp_wmem='4096 131072 268435456' >/dev/null 2>&1");
+    system("sysctl -w net.core.rmem_max=536870912 >/dev/null 2>&1");
+    system("sysctl -w net.core.wmem_max=536870912 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_rmem='4096 262144 536870912' >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.tcp_wmem='4096 131072 536870912' >/dev/null 2>&1");
     system("sysctl -w net.ipv4.tcp_mtu_probing=1 >/dev/null 2>&1");
     system("sysctl -w net.ipv4.tcp_sack=1 >/dev/null 2>&1");
     system("sysctl -w net.ipv4.tcp_window_scaling=1 >/dev/null 2>&1");
@@ -1799,10 +1799,10 @@ static void apply(void) {
     system("sysctl -w net.ipv4.tcp_tw_reuse=1 >/dev/null 2>&1");
     system("sysctl -w net.ipv4.tcp_fin_timeout=5 >/dev/null 2>&1");
     system("sysctl -w net.ipv4.tcp_keepalive_time=30 >/dev/null 2>&1");
-    system("sysctl -w net.ipv4.udp_mem='102400 873800 16777216' >/dev/null 2>&1");
-    system("sysctl -w net.ipv4.udp_rmem_min=65536 >/dev/null 2>&1");
-    system("sysctl -w net.ipv4.udp_wmem_min=65536 >/dev/null 2>&1");
-    system("sysctl -w net.core.optmem_max=65536 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.udp_mem='204800 1747600 33554432' >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.udp_rmem_min=131072 >/dev/null 2>&1");
+    system("sysctl -w net.ipv4.udp_wmem_min=131072 >/dev/null 2>&1");
+    system("sysctl -w net.core.optmem_max=131072 >/dev/null 2>&1");
     system("sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1");
     system("sysctl -w net.ipv4.conf.all.rp_filter=0 >/dev/null 2>&1");
     system("sysctl -w net.core.netdev_budget=1000 >/dev/null 2>&1");
@@ -2543,7 +2543,7 @@ show_dashboard() {
     IP=$(cat /etc/elite-x/cached_ip 2>/dev/null || echo "Unknown")
     SUB=$(cat /etc/elite-x/subdomain 2>/dev/null || echo "Not set")
     LOC=$(cat /etc/elite-x/location 2>/dev/null || echo "South Africa")
-    MTU=$(cat /etc/elite-x/mtu 2>/dev/null || echo "1800")
+    MTU=$(cat /etc/elite-x/mtu 2>/dev/null || echo "3000")
     RAM=$(free -h | awk '/^Mem:/{print $3"/"$2}')
     CPU=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1 2>/dev/null || echo "?")
 
@@ -2830,11 +2830,11 @@ run_installation() {
     read -p "$(echo -e $GREEN"Nameserver (e.g. ns1.yourdomain.com): "$NC)" TDOMAIN
 
     echo -e "${YELLOW}Select VPS location:${NC}"
-    echo -e "  [1] South Africa (MTU 1800)"
+    echo -e "  [1] South Africa (MTU 3000) ⚡ ULTRA BOOST"
     echo -e "  [2] USA          (MTU 1500)"
     echo -e "  [3] Europe       (MTU 1500)"
     echo -e "  [4] Asia         (MTU 1400)"
-    echo -e "  [5] Custom MTU"
+    echo -e "  [5] Custom MTU   (100 - 3000)"
     read -p "$(echo -e $GREEN"Choice [1]: "$NC)" LOC
     LOC=${LOC:-1}
     case $LOC in
@@ -2842,9 +2842,11 @@ run_installation() {
         3) SEL_LOC="Europe";       MTU=1500 ;;
         4) SEL_LOC="Asia";         MTU=1400 ;;
         5) SEL_LOC="Custom"
-           read -p "Enter MTU: " MTU
-           [[ ! "$MTU" =~ ^[0-9]+$ ]] && MTU=1800 ;;
-        *) SEL_LOC="South Africa"; MTU=1800 ;;
+           read -p "Enter MTU (100-3000): " MTU
+           [[ ! "$MTU" =~ ^[0-9]+$ ]] && MTU=3000
+           [ "$MTU" -lt 100  ] 2>/dev/null && MTU=100
+           [ "$MTU" -gt 3000 ] 2>/dev/null && MTU=3000 ;;
+        *) SEL_LOC="South Africa"; MTU=3000 ;;
     esac
 
     # ── Cleanup previous installation ─────────────────────
@@ -3036,7 +3038,7 @@ EOF
     # ══════════════════════════════════════════════════════
     clear
     echo -e "${GREEN}╔══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║${YELLOW}${BOLD}     ELITE-X v5.0 FALCON ULTRA MAX BOOST INSTALLED!       ${GREEN}║${NC}"
+    echo -e "${GREEN}║${YELLOW}${BOLD}     ELITE-X v6.0 FALCON ULTRA MAX BOOST INSTALLED!       ${GREEN}║${NC}"
     echo -e "${GREEN}╠══════════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${GREEN}║${WHITE}  Domain     :${CYAN} $TDOMAIN${NC}"
     echo -e "${GREEN}║${WHITE}  Location   :${CYAN} $SEL_LOC (MTU: $MTU)${NC}"
@@ -3068,14 +3070,15 @@ EOF
     check_svc "C Log Cleaner        " "elite-x-logcleaner"
 
     echo -e "${GREEN}╠══════════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${GREEN}║${YELLOW}  NEW IN v5.0:${NC}"
+    echo -e "${GREEN}║${YELLOW}  NEW IN v6.0:${NC}"
     echo -e "${GREEN}║${WHITE}  🌐 SlowDNS Multi-Protocol: UDP:5303 + TCP:5304${NC}"
     echo -e "${GREEN}║${WHITE}  🔁 3Proxy HTTP(:3128) + SOCKS5(:1080/:1081/:1082)${NC}"
     echo -e "${GREEN}║${WHITE}  🚀 UDP Turbo DUAL port: 5301 + 5302 (48 workers)${NC}"
     echo -e "${GREEN}║${WHITE}  🎨 Colorful SSH banners with mins remaining${NC}"
     echo -e "${GREEN}║${WHITE}  📊 Accurate connection count (ss+who+proc)${NC}"
-    echo -e "${GREEN}║${WHITE}  ⚡ C EDNS Proxy: 64 workers + 16MB buffers${NC}"
+    echo -e "${GREEN}║${WHITE}  ⚡ C EDNS Proxy: 64 workers + 32MB buffers${NC}"
     echo -e "${GREEN}║${WHITE}  🔋 BBR3 + FQ qdisc + RPS/XPS all CPUs${NC}"
+    echo -e "${GREEN}║${WHITE}  📦 MTU 3000 MAX - BUFFER 65536 - UDP 32MB${NC}"
     echo -e "${GREEN}╠══════════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${GREEN}║${CYAN}  SLOWDNS CONFIG:${NC}"
     echo -e "${GREEN}║${WHITE}  NS     : ${CYAN}$TDOMAIN${NC}"
