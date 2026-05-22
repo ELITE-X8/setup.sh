@@ -1371,7 +1371,7 @@ EOF
 # C: BANDWIDTH MONITOR (Enhanced)
 # ═══════════════════════════════════════════════════════════
 create_c_bandwidth_monitor() {
-    echo -e "${YELLOW}📝 Compiling C Bandwidth Monitor v5.0...${NC}"
+    echo -e "${YELLOW}📝 Compiling C Bandwidth Monitor v5.0 (Amokhan io/pidtrack method)...${NC}"
     cat > /tmp/bw_monitor.c <<'CEOF'
 #include <stdio.h>
 #include <stdlib.h>
@@ -1384,83 +1384,180 @@ create_c_bandwidth_monitor() {
 #include <pwd.h>
 #include <ctype.h>
 
-#define USER_DB   "/etc/elite-x/users"
-#define BW_DIR    "/etc/elite-x/bandwidth"
-#define PID_DIR   "/etc/elite-x/bandwidth/pidtrack"
-#define INTERVAL  10
+#define USER_DB      "/etc/elite-x/users"
+#define BW_DIR       "/etc/elite-x/bandwidth"
+#define PID_DIR      "/etc/elite-x/bandwidth/pidtrack"
+#define BANNED_DIR   "/etc/elite-x/banned"
+#define SCAN_INTERVAL 30
+#define GB_BYTES      1073741824.0
 
 static volatile int running = 1;
 void signal_handler(int sig) { running = 0; }
 
-static int is_numeric(const char *s) {
-    if (!s || !*s) return 0;
-    for (; *s; s++) if (!isdigit((unsigned char)*s)) return 0;
+/* Read rchar+wchar from /proc/PID/io */
+static long long get_process_io(int pid) {
+    char path[256];
+    snprintf(path, sizeof(path), "/proc/%d/io", pid);
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+    long long rchar = 0, wchar = 0;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "rchar:", 6) == 0) sscanf(line + 7, "%lld", &rchar);
+        else if (strncmp(line, "wchar:", 6) == 0) sscanf(line + 7, "%lld", &wchar);
+    }
+    fclose(f);
+    return rchar + wchar;
+}
+
+static int is_numeric(const char *str) {
+    if (!str || !*str) return 0;
+    for (; *str; str++) if (!isdigit((unsigned char)*str)) return 0;
     return 1;
 }
 
-static long long read_proc_net_bytes(const char *user) {
-    /* Read /proc/<pid>/net/dev for all sshd processes of user */
-    long long total = 0;
-    DIR *proc = opendir("/proc"); if (!proc) return 0;
-    struct dirent *e;
-    while ((e = readdir(proc))) {
-        if (!is_numeric(e->d_name)) continue;
-        int pid = atoi(e->d_name);
-        char cp[256]; snprintf(cp, sizeof(cp), "/proc/%d/comm", pid);
-        FILE *f = fopen(cp, "r"); if (!f) continue;
-        char comm[64]={0}; fgets(comm, sizeof(comm), f); fclose(f);
-        comm[strcspn(comm,"\n")] = 0;
-        if (strcmp(comm,"sshd") != 0) continue;
-        char sp[256]; snprintf(sp,sizeof(sp),"/proc/%d/status",pid);
-        FILE *sf = fopen(sp,"r"); if (!sf) continue;
-        char line[256], uid_s[32]={0};
-        while (fgets(line,sizeof(line),sf))
-            if (strncmp(line,"Uid:",4)==0){sscanf(line,"%*s %s",uid_s);break;}
+/* Get all sshd session PIDs for a user (ppid != 1 = real session, not daemon) */
+static int get_sshd_pids(const char *username, int *pids, int max_pids) {
+    int count = 0;
+    DIR *proc = opendir("/proc");
+    if (!proc) return 0;
+    struct dirent *entry;
+    while ((entry = readdir(proc)) && count < max_pids) {
+        if (!is_numeric(entry->d_name)) continue;
+        int pid = atoi(entry->d_name);
+
+        /* Check comm == sshd */
+        char comm_path[256];
+        snprintf(comm_path, sizeof(comm_path), "/proc/%d/comm", pid);
+        FILE *f = fopen(comm_path, "r");
+        if (!f) continue;
+        char comm[64] = {0};
+        fgets(comm, sizeof(comm), f);
+        fclose(f);
+        comm[strcspn(comm, "\n")] = 0;
+        if (strcmp(comm, "sshd") != 0) continue;
+
+        /* Check UID matches username */
+        char status_path[256];
+        snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
+        FILE *sf = fopen(status_path, "r");
+        if (!sf) continue;
+        char line[256], uid_str[32] = {0};
+        while (fgets(line, sizeof(line), sf))
+            if (strncmp(line, "Uid:", 4) == 0) { sscanf(line, "%*s %s", uid_str); break; }
         fclose(sf);
-        struct passwd *pw = getpwuid(atoi(uid_s));
-        if (!pw || strcmp(pw->pw_name,user)!=0) continue;
-        /* Read net/dev */
-        char np[256]; snprintf(np,sizeof(np),"/proc/%d/net/dev",pid);
-        FILE *nf = fopen(np,"r"); if (!nf) continue;
-        char nl[512];
-        while (fgets(nl,sizeof(nl),nf)) {
-            if (strstr(nl,"lo:")) continue;
-            long long rx=0,tx=0;
-            if (sscanf(nl," %*[^:]: %lld %*d %*d %*d %*d %*d %*d %*d %lld",&rx,&tx)==2)
-                total += rx + tx;
-        }
-        fclose(nf);
+        int uid = atoi(uid_str);
+        struct passwd *pw = getpwuid(uid);
+        if (!pw || strcmp(pw->pw_name, username) != 0) continue;
+
+        /* ppid != 1 → real session process, not the root sshd daemon */
+        char stat_path[256];
+        snprintf(stat_path, sizeof(stat_path), "/proc/%d/stat", pid);
+        FILE *stf = fopen(stat_path, "r");
+        if (!stf) continue;
+        int ppid = 0;
+        char stat_buf[1024];
+        fgets(stat_buf, sizeof(stat_buf), stf);
+        sscanf(stat_buf, "%*d %*s %*c %d", &ppid);
+        fclose(stf);
+        if (ppid != 1) pids[count++] = pid;
     }
     closedir(proc);
-    return total;
+    return count;
 }
 
 int main(void) {
-    signal(SIGTERM, signal_handler); signal(SIGINT, signal_handler);
-    mkdir(BW_DIR, 0755); mkdir(PID_DIR, 0755);
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
+    mkdir(BW_DIR, 0755);
+    mkdir(PID_DIR, 0755);
+    mkdir(BANNED_DIR, 0755);
 
     while (running) {
-        DIR *ud = opendir(USER_DB); if (!ud) { sleep(INTERVAL); continue; }
-        struct dirent *ue;
-        while ((ue = readdir(ud))) {
-            if (ue->d_name[0]=='.') continue;
-            char last_f[512]; snprintf(last_f,sizeof(last_f),"%s/%s__net.last",PID_DIR,ue->d_name);
-            char usage_f[512]; snprintf(usage_f,sizeof(usage_f),"%s/%s.usage",BW_DIR,ue->d_name);
-            long long last_bytes=0, cur_bytes=0, stored=0;
+        DIR *user_dir = opendir(USER_DB);
+        if (!user_dir) { sleep(SCAN_INTERVAL); continue; }
 
-            FILE *lf = fopen(last_f,"r"); if(lf){fscanf(lf,"%lld",&last_bytes);fclose(lf);}
-            FILE *uf = fopen(usage_f,"r"); if(uf){fscanf(uf,"%lld",&stored);fclose(uf);}
+        struct dirent *user_entry;
+        while ((user_entry = readdir(user_dir))) {
+            if (user_entry->d_name[0] == '.') continue;
 
-            cur_bytes = read_proc_net_bytes(ue->d_name);
-            if (cur_bytes > 0) {
-                long long diff = (cur_bytes > last_bytes) ? (cur_bytes - last_bytes) : 0;
-                stored += diff;
-                FILE *wf = fopen(usage_f,"w"); if(wf){fprintf(wf,"%lld\n",stored);fclose(wf);}
-                FILE *wl = fopen(last_f,"w"); if(wl){fprintf(wl,"%lld\n",cur_bytes);fclose(wl);}
+            /* Read user config - get bandwidth limit */
+            char user_file[512];
+            snprintf(user_file, sizeof(user_file), "%s/%s", USER_DB, user_entry->d_name);
+            FILE *uf = fopen(user_file, "r");
+            if (!uf) continue;
+            double bandwidth_gb = 0;
+            char line[256];
+            while (fgets(line, sizeof(line), uf))
+                if (strncmp(line, "Bandwidth_GB:", 13) == 0) sscanf(line + 13, "%lf", &bandwidth_gb);
+            fclose(uf);
+
+            /* Skip users with no bandwidth limit set */
+            if (bandwidth_gb <= 0) continue;
+
+            /* Find all active sshd session PIDs for this user */
+            int pids[100];
+            int pid_count = get_sshd_pids(user_entry->d_name, pids, 100);
+            if (pid_count == 0) {
+                /* No active sessions - clean stale pidfiles */
+                char cmd[512];
+                snprintf(cmd, sizeof(cmd),
+                    "rm -f %s/%s__*.last 2>/dev/null", PID_DIR, user_entry->d_name);
+                system(cmd);
+                continue;
+            }
+
+            /* Calculate delta IO bytes across all session PIDs */
+            long long delta_total = 0;
+            int i;
+            for (i = 0; i < pid_count; i++) {
+                long long cur_io = get_process_io(pids[i]);
+                char pidfile[512];
+                snprintf(pidfile, sizeof(pidfile),
+                    "%s/%s__%d.last", PID_DIR, user_entry->d_name, pids[i]);
+
+                FILE *pf = fopen(pidfile, "r");
+                if (pf) {
+                    long long prev_io = 0;
+                    fscanf(pf, "%lld", &prev_io);
+                    fclose(pf);
+                    long long d = (cur_io >= prev_io) ? (cur_io - prev_io) : cur_io;
+                    delta_total += d;
+                }
+                /* Save current IO as baseline for next interval */
+                pf = fopen(pidfile, "w");
+                if (pf) { fprintf(pf, "%lld\n", cur_io); fclose(pf); }
+            }
+
+            /* Add delta to accumulated usage file */
+            char usagefile[512];
+            snprintf(usagefile, sizeof(usagefile), "%s/%s.usage", BW_DIR, user_entry->d_name);
+            long long accumulated = 0;
+            FILE *accf = fopen(usagefile, "r");
+            if (accf) { fscanf(accf, "%lld", &accumulated); fclose(accf); }
+            long long new_total = accumulated + delta_total;
+            accf = fopen(usagefile, "w");
+            if (accf) { fprintf(accf, "%lld\n", new_total); fclose(accf); }
+
+            /* Block user if quota exceeded */
+            long long quota_bytes = (long long)(bandwidth_gb * GB_BYTES);
+            if (new_total >= quota_bytes) {
+                char cmd[1024];
+                snprintf(cmd, sizeof(cmd),
+                    "passwd -S %s 2>/dev/null | grep -q 'L' || "
+                    "(usermod -L %s 2>/dev/null && "
+                    "killall -u %s -9 2>/dev/null && "
+                    "echo '%s - BLOCKED: Bandwidth quota exceeded %.1fGB' >> %s/%s)",
+                    user_entry->d_name,
+                    user_entry->d_name,
+                    user_entry->d_name,
+                    "BLOCKED", bandwidth_gb,
+                    BANNED_DIR, user_entry->d_name);
+                system(cmd);
             }
         }
-        closedir(ud);
-        sleep(INTERVAL);
+        closedir(user_dir);
+        sleep(SCAN_INTERVAL);
     }
     return 0;
 }
@@ -1472,7 +1569,7 @@ CEOF
         chmod +x /usr/local/bin/elite-x-bandwidth-c
         cat > /etc/systemd/system/elite-x-bandwidth.service <<EOF
 [Unit]
-Description=ELITE-X C Bandwidth Monitor v5.0
+Description=ELITE-X C Bandwidth Monitor v5.0 (io/pidtrack)
 After=network.target
 [Service]
 Type=simple
@@ -1484,7 +1581,7 @@ MemoryMax=50M
 [Install]
 WantedBy=multi-user.target
 EOF
-        echo -e "${GREEN}✅ C Bandwidth Monitor v5.0 compiled${NC}"
+        echo -e "${GREEN}✅ C Bandwidth Monitor v5.0 compiled (io/pidtrack method)${NC}"
     else
         echo -e "${RED}❌ Bandwidth Monitor compilation failed${NC}"
     fi
