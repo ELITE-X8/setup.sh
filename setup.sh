@@ -73,11 +73,21 @@ force_user_message() {
     usage_bytes=$(cat "$BANDWIDTH_DIR/${username}.usage" 2>/dev/null || echo 0)
     usage_gb=$(echo "scale=2; $usage_bytes / 1073741824" | bc 2>/dev/null || echo "0.00")
 
-    # Get accurate connection count
+    # Get accurate connection count via /proc (works Ubuntu 18-24)
     local current_conn=0
-    current_conn=$(ss -tnp 2>/dev/null | grep "sshd" | grep -c "$username" 2>/dev/null || echo 0)
-    [ "$current_conn" -eq 0 ] && current_conn=$(who | grep -wc "$username" 2>/dev/null || echo 0)
-    [ "$current_conn" -eq 0 ] && current_conn=$(ps aux 2>/dev/null | grep "sshd:" | grep "$username" | grep -v grep | grep -v "@notty" | wc -l)
+    local _uid; _uid=$(id -u "$username" 2>/dev/null || echo "")
+    if [ -n "$_uid" ]; then
+        for _pid_dir in /proc/[0-9]*/; do
+            local _pid="${_pid_dir%/}"; _pid="${_pid##*/proc/}"
+            [ -f "${_pid_dir}comm" ] || continue
+            [ "$(cat "${_pid_dir}comm" 2>/dev/null)" = "sshd" ] || continue
+            local _uid_check; _uid_check=$(awk '/^Uid:/{print $2}' "${_pid_dir}status" 2>/dev/null)
+            [ "$_uid_check" = "$_uid" ] || continue
+            local _ppid; _ppid=$(awk '{print $4}' "${_pid_dir}stat" 2>/dev/null)
+            [ "$_ppid" = "1" ] && continue
+            current_conn=$((current_conn + 1))
+        done
+    fi
     current_conn=${current_conn:-0}
 
     local now_ts expire_ts remaining_seconds remaining_days remaining_hours remaining_mins
@@ -228,10 +238,21 @@ conn_limit=${conn_limit:-1}
 usage_bytes=$(cat "$BANDWIDTH_DIR/${USERNAME}.usage" 2>/dev/null || echo 0)
 usage_gb=$(echo "scale=2; $usage_bytes / 1073741824" | bc 2>/dev/null || echo "0.00")
 
-# Accurate connection count using ss, who, ps in order
-current_conn=$(ss -tnp 2>/dev/null | grep "sshd" | grep -c "$USERNAME" 2>/dev/null || echo 0)
-[ "$current_conn" -eq 0 ] && current_conn=$(who | grep -wc "$USERNAME" 2>/dev/null || echo 0)
-[ "$current_conn" -eq 0 ] && current_conn=$(ps aux 2>/dev/null | grep "sshd:" | grep "$USERNAME" | grep -v grep | grep -v "@notty" | wc -l)
+# Accurate connection count via /proc (works Ubuntu 18.04 - 24.04)
+# Count sshd processes owned by user where ppid != 1 (real sessions only)
+current_conn=0
+_uid=$(id -u "$USERNAME" 2>/dev/null || echo "")
+if [ -n "$_uid" ]; then
+    for _pd in /proc/[0-9]*/; do
+        [ -f "${_pd}comm" ] || continue
+        [ "$(cat "${_pd}comm" 2>/dev/null)" = "sshd" ] || continue
+        _puid=$(awk '/^Uid:/{print $2}' "${_pd}status" 2>/dev/null)
+        [ "$_puid" = "$_uid" ] || continue
+        _ppid=$(awk '{print $4}' "${_pd}stat" 2>/dev/null)
+        [ "$_ppid" = "1" ] && continue
+        current_conn=$((current_conn + 1))
+    done
+fi
 current_conn=${current_conn:-0}
 
 now_ts=$(date +%s)
@@ -2032,10 +2053,22 @@ PID_DIR="$BW_DIR/pidtrack"; AUTOBAN_FLAG="/etc/elite-x/autoban_enabled"
 mkdir -p "$UD" "$USAGE_DB" "$DD" "$BD" "$CONN_DB" "$BW_DIR" "$PID_DIR"
 
 get_connection_count() {
+    # Count real SSH sessions via /proc - Ubuntu 18/20/22/24 compatible
+    # Counts sshd processes owned by user where ppid != 1 (sessions, not daemon)
     local u="$1" c=0
-    c=$(ps aux 2>/dev/null | grep "sshd:" | grep "$u" | grep -v grep | grep -v "@notty" | wc -l | tr -d ' \n')
-    [ -z "$c" ] || ! [[ "$c" =~ ^[0-9]+$ ]] && c=0
-    echo "$c"
+    local _uid; _uid=$(id -u "$u" 2>/dev/null || echo "")
+    if [ -n "$_uid" ]; then
+        for _pd in /proc/[0-9]*/; do
+            [ -f "${_pd}comm" ] || continue
+            [ "$(cat "${_pd}comm" 2>/dev/null)" = "sshd" ] || continue
+            local _puid; _puid=$(awk '/^Uid:/{print $2}' "${_pd}status" 2>/dev/null)
+            [ "$_puid" = "$_uid" ] || continue
+            local _ppid; _ppid=$(awk '{print $4}' "${_pd}stat" 2>/dev/null)
+            [ "$_ppid" = "1" ] && continue
+            c=$((c + 1))
+        done
+    fi
+    echo "${c:-0}"
 }
 
 get_bandwidth_usage() {
