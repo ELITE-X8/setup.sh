@@ -47,8 +47,8 @@ show_quote() {
 show_banner() {
     clear
     echo -e "${RED}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${RED}║${YELLOW}${BOLD}                   ELITE-X SLOWDNS v3.0                        ${RED}║${NC}"
-    echo -e "${RED}║${GREEN}${BOLD}                    Stable Edition                              ${RED}║${NC}"
+    echo -e "${RED}║${YELLOW}${BOLD}                   ELITE-X SLOWDNS v3.1                        ${RED}║${NC}"
+    echo -e "${RED}║${GREEN}${BOLD}                 Bug-Fixed Edition                              ${RED}║${NC}"
     echo -e "${RED}╚═══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -84,8 +84,8 @@ check_expiry() {
                 echo -e "${RED}╚═══════════════════════════════════════════════════════════════╝${NC}"
                 sleep 3
                       
-                systemctl stop dnstt-elite-x dnstt-elite-x-proxy elite-x-traffic elite-x-cleaner 2>/dev/null || true
-                systemctl disable dnstt-elite-x dnstt-elite-x-proxy elite-x-traffic elite-x-cleaner 2>/dev/null || true
+                systemctl stop dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-connmon elite-x-cleaner 2>/dev/null || true
+                systemctl disable dnstt-elite-x dnstt-elite-x-proxy elite-x-bandwidth elite-x-connmon elite-x-cleaner 2>/dev/null || true
                 rm -f /etc/systemd/system/{dnstt-elite-x*,elite-x-*}
                 rm -rf /etc/dnstt /etc/elite-x
                 rm -f /usr/local/bin/{dnstt-*,elite-x*}
@@ -629,13 +629,109 @@ int main(void) {
     return 0;
 }
 CEOF
-    gcc -O3 -o /usr/local/bin/elite-x-edns-proxy-c /tmp/edns_proxy.c -lpthread 2>/dev/null
+    gcc -O2 -o /usr/local/bin/elite-x-edns-proxy-c /tmp/edns_proxy.c -lpthread
+    local rc=$?
     rm -f /tmp/edns_proxy.c
-    if [ -f /usr/local/bin/elite-x-edns-proxy-c ]; then
+    if [ $rc -eq 0 ] && [ -f /usr/local/bin/elite-x-edns-proxy-c ]; then
         chmod +x /usr/local/bin/elite-x-edns-proxy-c
         echo -e "${GREEN}✅ C EDNS Proxy compiled${NC}"
     else
-        echo -e "${RED}❌ C EDNS Proxy compilation failed${NC}"
+        echo -e "${RED}❌ C EDNS Proxy compilation failed (exit $rc)${NC}"
+        echo -e "${YELLOW}⚠️  Trying to install build-essential...${NC}"
+        apt-get install -y gcc build-essential 2>/dev/null
+        # retry
+        cat > /tmp/edns_proxy2.c <<'CEOF2'
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <signal.h>
+#include <pthread.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <sys/resource.h>
+
+#define LISTEN_PORT   53
+#define UPSTREAM_PORT 5300
+#define BUF_SIZE      4096
+
+static volatile int running = 1;
+void signal_handler(int sig) { (void)sig; running = 0; }
+
+typedef struct {
+    int srv_fd;
+    unsigned char data[BUF_SIZE];
+    int len;
+    struct sockaddr_in caddr;
+    socklen_t clen;
+} pkt_t;
+
+static void *handle(void *arg) {
+    pkt_t *p = (pkt_t *)arg;
+    int u = socket(AF_INET, SOCK_DGRAM, 0);
+    if (u < 0) { free(p); return NULL; }
+    struct timeval tv = {5, 0};
+    setsockopt(u, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    struct sockaddr_in up = {0};
+    up.sin_family = AF_INET;
+    up.sin_port = htons(UPSTREAM_PORT);
+    up.sin_addr.s_addr = inet_addr("127.0.0.1");
+    sendto(u, p->data, p->len, 0, (struct sockaddr*)&up, sizeof(up));
+    unsigned char resp[BUF_SIZE];
+    socklen_t ul = sizeof(up);
+    int rlen = recvfrom(u, resp, sizeof(resp), 0, (struct sockaddr*)&up, &ul);
+    close(u);
+    if (rlen > 0)
+        sendto(p->srv_fd, resp, rlen, 0, (struct sockaddr*)&p->caddr, p->clen);
+    free(p);
+    return NULL;
+}
+
+int main(void) {
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT,  signal_handler);
+    struct rlimit rl = {1048576, 1048576};
+    setrlimit(RLIMIT_NOFILE, &rl);
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) { perror("socket"); return 1; }
+    int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(LISTEN_PORT);
+    if (bind(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        perror("bind port 53"); close(fd); return 1;
+    }
+    fprintf(stderr, "[ELITE-X] EDNS Proxy running :%d -> :%d\n",
+            LISTEN_PORT, UPSTREAM_PORT);
+    while (running) {
+        pkt_t *p = malloc(sizeof(pkt_t));
+        if (!p) { sleep(1); continue; }
+        p->srv_fd = fd;
+        p->clen   = sizeof(p->caddr);
+        p->len    = recvfrom(fd, p->data, BUF_SIZE, 0,
+                             (struct sockaddr*)&p->caddr, &p->clen);
+        if (p->len <= 0) { free(p); continue; }
+        pthread_t tid;
+        if (pthread_create(&tid, NULL, handle, p) == 0)
+            pthread_detach(tid);
+        else
+            free(p);
+    }
+    close(fd);
+    return 0;
+}
+CEOF2
+        gcc -O2 -o /usr/local/bin/elite-x-edns-proxy-c /tmp/edns_proxy2.c -lpthread
+        rm -f /tmp/edns_proxy2.c
+        if [ -f /usr/local/bin/elite-x-edns-proxy-c ]; then
+            chmod +x /usr/local/bin/elite-x-edns-proxy-c
+            echo -e "${GREEN}✅ C EDNS Proxy compiled (retry ok)${NC}"
+        else
+            echo -e "${RED}❌ EDNS Proxy compilation failed completely. Check gcc installation.${NC}"
+        fi
     fi
 }
 
@@ -903,12 +999,67 @@ cat > /etc/elite-x/banner/ssh-banner <<'EOF'
 ╚═════════════════════════════════════════╝
 EOF
 
-if ! grep -q "^Banner" /etc/ssh/sshd_config; then
-    echo "Banner /etc/elite-x/banner/ssh-banner" >> /etc/ssh/sshd_config
-else
-    sed -i 's|^Banner.*|Banner /etc/elite-x/banner/ssh-banner|' /etc/ssh/sshd_config
+echo "Configuring SSH for VPN tunneling..."
+cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak 2>/dev/null || true
+
+# Clean old entries
+sed -i '/^Banner[[:space:]]/d; /Include \/etc\/ssh\/sshd_config.d\/\*\.conf/d' \
+    /etc/ssh/sshd_config 2>/dev/null
+
+mkdir -p /etc/ssh/sshd_config.d
+
+cat > /etc/ssh/sshd_config.d/elite-x-base.conf <<'SSHCONF'
+# ELITE-X VPN Base Configuration v3.0
+Port 22
+AddressFamily any
+ListenAddress 0.0.0.0
+ListenAddress ::
+
+PermitRootLogin yes
+PasswordAuthentication yes
+PubkeyAuthentication yes
+ChallengeResponseAuthentication no
+UsePAM yes
+
+AllowTcpForwarding yes
+AllowAgentForwarding yes
+GatewayPorts yes
+PermitTunnel yes
+PermitOpen any
+
+TCPKeepAlive yes
+ClientAliveInterval 30
+ClientAliveCountMax 6
+MaxStartups 500:30:1000
+MaxSessions 500
+
+Compression no
+UseDNS no
+LogLevel VERBOSE
+IPQoS lowdelay throughput
+SSHCONF
+
+# Per-user banner config
+cat > /etc/ssh/sshd_config.d/elite-x-users.conf <<'SSHCONF2'
+# ELITE-X User Banners v3.0
+SSHCONF2
+
+# Add global banner entry
+echo "Banner /etc/elite-x/banner/ssh-banner" >> /etc/ssh/sshd_config.d/elite-x-base.conf
+
+# Include all configs
+if ! grep -q "Include /etc/ssh/sshd_config.d" /etc/ssh/sshd_config; then
+    echo "Include /etc/ssh/sshd_config.d/*.conf" >> /etc/ssh/sshd_config
 fi
-systemctl restart sshd
+
+if sshd -t 2>/dev/null; then
+    systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
+else
+    echo -e "${RED}❌ SSH config error! Restoring backup...${NC}"
+    cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config 2>/dev/null || true
+    systemctl restart sshd 2>/dev/null || true
+fi
+echo -e "${GREEN}✅ SSH configured for VPN tunneling${NC}"
 
 echo "Stopping old services..."
 for svc in dnstt dnstt-server slowdns dnstt-smart dnstt-elite-x dnstt-elite-x-proxy; do
@@ -927,7 +1078,7 @@ fi
 
 echo "Installing dependencies..."
 apt update -y
-apt install -y curl gcc jq nano iptables iptables-persistent ethtool dnsutils bc
+apt install -y curl gcc build-essential jq nano iptables iptables-persistent ethtool dnsutils bc
 
 echo "Installing dnstt-server..."
 curl -fsSL https://dnstt.network/dnstt-server-linux-amd64 -o /usr/local/bin/dnstt-server
@@ -959,7 +1110,8 @@ After=network-online.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/dnstt-server -udp :${DNSTT_PORT} -mtu ${MTU} -privkey-file /etc/dnstt/server.key ${TDOMAIN} 127.0.0.1:22
-Restart=no
+Restart=always
+RestartSec=3
 KillSignal=SIGTERM
 LimitNOFILE=1048576
 
@@ -973,12 +1125,15 @@ setup_c_edns_proxy
 cat >/etc/systemd/system/dnstt-elite-x-proxy.service <<EOF
 [Unit]
 Description=ELITE-X C EDNS Proxy
-After=dnstt-elite-x.service
+After=network-online.target dnstt-elite-x.service
+Requires=dnstt-elite-x.service
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/elite-x-edns-proxy-c
-Restart=no
+Restart=always
+RestartSec=3
+LimitNOFILE=1048576
 
 [Install]
 WantedBy=multi-user.target
@@ -1164,7 +1319,36 @@ Created: $(date +"%Y-%m-%d")
 INFO
     
     echo "0" > "$BW_DIR/${username}.usage"
-    
+
+    # Register user in SSH config so tunneling/forwarding works
+    mkdir -p /etc/ssh/sshd_config.d
+    if [ ! -f /etc/ssh/sshd_config.d/elite-x-users.conf ]; then
+        echo "# ELITE-X User Banners v3.0" > /etc/ssh/sshd_config.d/elite-x-users.conf
+    fi
+    # Remove old entry for this user if exists, then add fresh
+    # Use awk to reliably remove Match User block (sed /,/^$/ fails when blocks lack trailing blank line)
+    awk -v u="Match User ${username}" '
+        /^Match User / && $0 == u { skip=1; next }
+        skip && /^Match User / { skip=0 }
+        skip && /^[^[:space:]]/ { skip=0 }
+        !skip { print }
+    ' /etc/ssh/sshd_config.d/elite-x-users.conf > /tmp/ex-users.tmp 2>/dev/null && \
+        mv /tmp/ex-users.tmp /etc/ssh/sshd_config.d/elite-x-users.conf || true
+    # Append new block with trailing newline so next block parses cleanly
+    printf "\nMatch User %s\n    AllowTcpForwarding yes\n    GatewayPorts yes\n    PermitTunnel yes\n    Banner /etc/elite-x/banner/ssh-banner\n\n" \
+        "$username" >> /etc/ssh/sshd_config.d/elite-x-users.conf
+    # Ensure Include line exists
+    if ! grep -q "Include /etc/ssh/sshd_config.d" /etc/ssh/sshd_config; then
+        echo "Include /etc/ssh/sshd_config.d/*.conf" >> /etc/ssh/sshd_config
+    fi
+    # Validate config before reloading - if invalid, restart will show error
+    if sshd -t 2>/dev/null; then
+        systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
+    else
+        echo -e "${RED}⚠️  SSH config error detected! Checking...${NC}"
+        sshd -t
+    fi
+
     SERVER=$(cat /etc/elite-x/subdomain 2>/dev/null || echo "?")
     PUBKEY=$(cat /etc/dnstt/server.pub 2>/dev/null || echo "Not generated")
     local bw_disp="Unlimited"; [ "$bw" != "0" ] && bw_disp="${bw} GB"
@@ -1269,6 +1453,15 @@ delete_user() {
     read -p "Username: " u
     userdel -r "$u" 2>/dev/null
     rm -f $UD/$u "$BW_DIR/${u}.usage" "$CONN_DB/$u"
+    # Remove from SSH config using awk (sed /,/^$/ is unreliable without trailing blank lines)
+    awk -v u="Match User ${u}" '
+        /^Match User / && $0 == u { skip=1; next }
+        skip && /^Match User / { skip=0 }
+        skip && /^[^[:space:]]/ { skip=0 }
+        !skip { print }
+    ' /etc/ssh/sshd_config.d/elite-x-users.conf > /tmp/ex-users.tmp 2>/dev/null && \
+        mv /tmp/ex-users.tmp /etc/ssh/sshd_config.d/elite-x-users.conf || true
+    sshd -t 2>/dev/null && systemctl restart sshd 2>/dev/null || true
     echo -e "${GREEN}✅ Deleted${NC}"
     show_quote
 }
@@ -1414,7 +1607,7 @@ show_dashboard() {
     CNM=$(systemctl is-active elite-x-connmon 2>/dev/null | grep -q active && echo "${GREEN}●${NC}" || echo "${RED}●${NC}")
     
     echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${YELLOW}${BOLD}                    ELITE-X SLOWDNS v3.0                       ${CYAN}║${NC}"
+    echo -e "${CYAN}║${YELLOW}${BOLD}                    ELITE-X SLOWDNS v3.1                       ${CYAN}║${NC}"
     echo -e "${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${CYAN}║${WHITE}  Subdomain :${GREEN} $SUB${NC}"
     echo -e "${CYAN}║${WHITE}  IP        :${GREEN} $IP${NC}"
