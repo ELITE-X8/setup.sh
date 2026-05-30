@@ -111,6 +111,16 @@ force_user_message() {
         status_icon="🟢"; status_text="ACTIVE"
     fi
 
+    # Online/Offline status kulingana na devices zilizounganishwa sasa hivi
+    local online_icon online_text online_color
+    if [ "$current_conn" -gt 0 ]; then
+        online_icon="🔴"; online_text="ONLINE (${current_conn} device(s) connected)"
+        online_color="#ff4444"
+    else
+        online_icon="⚫"; online_text="OFFLINE"
+        online_color="#888888"
+    fi
+
     # === HAPA NDIPO TUNAPOWEKA HTML NDANI YA SCRIPT ===
     cat <<EOF > "$msg_file"
 <div style="background-color: #000000; color: #ffffff; font-family: 'Courier New', Courier, monospace; padding: 20px; border-radius: 5px; display: inline-block; white-space: pre; line-height: 1.4;">
@@ -126,7 +136,9 @@ force_user_message() {
 <span style="color: #ffff00; font-weight: bold;"> LIMIT GB  </span>: <span style="color: #00ff00; font-weight: bold;">$bw_display</span>
 <span style="color: #ffff00; font-weight: bold;"> USAGE GB  </span>: <span style="color: #ff0000; font-weight: bold;">$usage_gb GB</span>
 <span style="color: #0000ff; font-weight: bold;">───────────────────────────────────</span>
-<span style="color: #ffff00; font-weight: bold;"> CONNECTION</span>: <span style="color: #ff00ff; font-weight: bold;">$current_conn/$conn_limit</span>
+<span style="color: #ffff00; font-weight: bold;"> DEVICES   </span>: <span style="color: #ff00ff; font-weight: bold;">$current_conn / $conn_limit slots used</span>
+<span style="color: #0000ff; font-weight: bold;">───────────────────────────────────</span>
+<span style="color: #ffff00; font-weight: bold;"> ONLINE    </span>: <span style="color: ${online_color}; font-weight: bold;">$online_icon $online_text</span>
 <span style="color: #0000ff; font-weight: bold;">───────────────────────────────────</span>
 <span style="color: #ffff00; font-weight: bold;"> STATUS    </span>: <span style="color: #00ff00; font-weight: bold;">$status_icon $status_text</span>
 <span style="color: #ff00ff; font-weight: bold;">═══════════════════════════════════</span>
@@ -2589,7 +2601,22 @@ show_dashboard() {
     CONNMON=$(svc_dot elite-x-connmon)
 
     TOTAL=$(ls "$UD" 2>/dev/null | wc -l)
-    ONLINE=$(who | wc -l)
+    # Hesabu accurate VPN users wanaofanya kazi sasa via /proc (sio who)
+    ONLINE=0
+    declare -A _dash_sess
+    for _pd in /proc/[0-9]*/; do
+        [ -f "${_pd}comm" ] || continue
+        [ "$(cat "${_pd}comm" 2>/dev/null)" = "sshd" ] || continue
+        _dppid=$(awk '{print $4}' "${_pd}stat" 2>/dev/null)
+        [ "$_dppid" = "1" ] && continue
+        _dpuid=$(awk '/^Uid:/{print $2}' "${_pd}status" 2>/dev/null)
+        [ -n "$_dpuid" ] && _dash_sess[$_dpuid]=1
+    done
+    for _uid_key in "${!_dash_sess[@]}"; do
+        _uname=$(getent passwd "$_uid_key" 2>/dev/null | cut -d: -f1)
+        [ -f "$UD/$_uname" ] && ONLINE=$((ONLINE + 1))
+    done
+    unset _dash_sess
 
     echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${MAGENTA}║${YELLOW}${BOLD}    ELITE-X SLOWDNS VPN v5 - FALCON ULTRA       ${MAGENTA}║${NC}"
